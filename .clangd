@@ -1,0 +1,6 @@
+CompileFlags:
+  Add: [
+    -Ideps/include,
+    -Iexternal/imgui,
+    -Iexternal/imgui/backends
+  ]
