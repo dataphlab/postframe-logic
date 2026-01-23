@@ -24,8 +24,8 @@ void defaultTheme() {
 ImGuiStyle& style = ImGui::GetStyle();
     ImVec4* colors = style.Colors;
 
-    // --- ГЕОМЕТРИЯ (Строгий стиль) ---
-    style.WindowRounding    = 0.0f;  // Острые углы выглядят более профессионально в ч/б
+    // --- ГЕОМЕТРИЯ ---
+    style.WindowRounding    = 0.0f;
     style.FrameRounding     = 2.0f;
     style.PopupRounding     = 0.0f;
     style.ScrollbarRounding = 0.0f;
@@ -122,7 +122,6 @@ int main() {
     };
 
     unsigned int planeVAO, planeVBO, cubeVAO, cubeVBO;
-    // (Код генерации VAO/VBO для пола и куба идентичен твоему прошлому)
     // Генерируем planeVAO...
     glGenVertexArrays(1, &planeVAO); glGenBuffers(1, &planeVBO);
     glBindVertexArray(planeVAO);
@@ -151,14 +150,10 @@ int main() {
     static glm::vec3 cameraPos = glm::vec3(0.0f, 2.0f, 6.0f);
 
     // MOTION BLUR
-    // Создаем фреймбуфер (размером с экран)
     Framebuffer screenBuffer(1280, 720);
-    // Шейдер для отрисовки текстуры на экран
     Shader screenShader("assets/shaders/screen_v.glsl", "assets/shaders/screen_f.glsl");
 
-    // Геометрия прямоугольника на весь экран (Quad)
     float quadVertices[] = {
-        // поля: POS (x, y), TEX (u, v)
         -1.0f,  1.0f,  0.0f, 1.0f,
         -1.0f, -1.0f,  0.0f, 0.0f,
         1.0f, -1.0f,  1.0f, 0.0f,
@@ -181,7 +176,6 @@ int main() {
 
     defaultTheme();
 
-    // Перед циклом убедись, что очистил экран хотя бы один раз
     glClearColor(0.1f, 0.1f, 0.1f, 1.0f);
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
@@ -232,7 +226,7 @@ int main() {
         ImGui::Text("Use WASD and Right Mouse to fly");
         ImGui::End();
 
-        // --- ШАГ 1: РЕНДЕР СЦЕНЫ В ТЕКСТУРУ ---
+        // --- РЕНДЕР СЦЕНЫ В ТЕКСТУРУ ---
         screenBuffer.bind();
         glEnable(GL_DEPTH_TEST);
         glClearColor(0.1f, 0.1f, 0.1f, 1.0f);
@@ -269,8 +263,7 @@ int main() {
         
         screenBuffer.unbind();
 
-        // --- ШАГ 2: ВЫВОД НА ЭКРАН (BLUR) ---
-        // НЕ чистим Color Buffer основного экрана!
+        // --- ВЫВОД НА ЭКРАН (BLUR) ---
         glClear(GL_DEPTH_BUFFER_BIT); 
 
         glDisable(GL_DEPTH_TEST);
@@ -286,14 +279,14 @@ int main() {
         glBindTexture(GL_TEXTURE_2D, screenBuffer.textureColor);
         glDrawArrays(GL_TRIANGLES, 0, 6);
 
-        // --- ШАГ 3: IMGUI ---
+        // --- IMGUI ---
         ImGui::Render();
         ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
 
         glfwSwapBuffers(window);
     }
 
-    // Очистка (Shader и Texture можно добавить деструкторы для удаления ID)
+    // Очистка
     glDeleteVertexArrays(1, &planeVAO);
     glDeleteVertexArrays(1, &cubeVAO);
     glfwTerminate();
