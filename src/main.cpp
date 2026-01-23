@@ -79,88 +79,30 @@ ImGuiStyle& style = ImGui::GetStyle();
 }
 
 int main() {
-    // 1. Инициализация GLFW и Окна
     glfwInit();
-    glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 3);
-    glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 3);
+    glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 4);
+    glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 6);
     glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
 
-    GLFWwindow* window = glfwCreateWindow(1280, 720, "PostFrame Logic", NULL, NULL);
+    GLFWwindow* window = glfwCreateWindow(1280, 720, "Path Tracing Engine", NULL, NULL);
     if (!window) return -1;
     glfwMakeContextCurrent(window);
     if (!gladLoadGL(glfwGetProcAddress)) return -1;
 
-    // 2. Инициализация ImGui
+    // Инициализация ImGui
     IMGUI_CHECKVERSION();
     ImGui::CreateContext();
-    ImGuiIO& io = ImGui::GetIO();
     ImGui_ImplGlfw_InitForOpenGL(window, true);
-    ImGui_ImplOpenGL3_Init("#version 330");
+    ImGui_ImplOpenGL3_Init("#version 460");
 
-    // 3. Загрузка ресурсов (Тут магия твоих новых классов!)
-    Shader ourShader("assets/shaders/vertex.glsl", "assets/shaders/fragment.glsl");
-    Texture logoTex("assets/program_base/logo-bg.png", true); // true = RGBA
-    Texture floorTex("assets/base_tex.png", false);         // false = RGB
-
-    // 4. Настройка геометрии (VAO/VBO)
-    float planeVertices[] = {
-        -50.0f, -0.5f, -50.0f,  0.0f,  0.0f,
-         50.0f, -0.5f, -50.0f,  20.0f, 0.0f,
-         50.0f, -0.5f,  50.0f,  20.0f, 20.0f,
-         50.0f, -0.5f,  50.0f,  20.0f, 20.0f,
-        -50.0f, -0.5f,  50.0f,  0.0f,  20.0f,
-        -50.0f, -0.5f, -50.0f,  0.0f,  0.0f
-    };
-
-    float cubeVertices[] = {
-        -0.5f, -0.5f, 0.0f,  0.0f, 0.0f,
-         0.5f, -0.5f, 0.0f,  1.0f, 0.0f,
-        -0.5f,  0.5f, 0.0f,  0.0f, 1.0f,
-         0.5f, -0.5f, 0.0f,  1.0f, 0.0f,
-        -0.5f,  0.5f, 0.0f,  0.0f, 1.0f,
-         0.5f,  0.5f, 0.0f,  1.0f, 1.0f
-    };
-
-    unsigned int planeVAO, planeVBO, cubeVAO, cubeVBO;
-    // Генерируем planeVAO...
-    glGenVertexArrays(1, &planeVAO); glGenBuffers(1, &planeVBO);
-    glBindVertexArray(planeVAO);
-    glBindBuffer(GL_ARRAY_BUFFER, planeVBO);
-    glBufferData(GL_ARRAY_BUFFER, sizeof(planeVertices), planeVertices, GL_STATIC_DRAW);
-    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 5 * sizeof(float), (void*)0);
-    glEnableVertexAttribArray(0);
-    glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, 5 * sizeof(float), (void*)(3 * sizeof(float)));
-    glEnableVertexAttribArray(1);
-
-    // Генерируем cubeVAO...
-    glGenVertexArrays(1, &cubeVAO); glGenBuffers(1, &cubeVBO);
-    glBindVertexArray(cubeVAO);
-    glBindBuffer(GL_ARRAY_BUFFER, cubeVBO);
-    glBufferData(GL_ARRAY_BUFFER, sizeof(cubeVertices), cubeVertices, GL_STATIC_DRAW);
-    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 5 * sizeof(float), (void*)0);
-    glEnableVertexAttribArray(0);
-    glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, 5 * sizeof(float), (void*)(3 * sizeof(float)));
-    glEnableVertexAttribArray(1);
-
-    // 5. Глобальные настройки
-    glEnable(GL_DEPTH_TEST);
-    glEnable(GL_BLEND);
-    glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
-
-    static glm::vec3 cameraPos = glm::vec3(0.0f, 2.0f, 6.0f);
-
-    // MOTION BLUR
-    Framebuffer screenBuffer(1280, 720);
-    Shader screenShader("assets/shaders/screen_v.glsl", "assets/shaders/screen_f.glsl");
-
+    // Ресурсы
     float quadVertices[] = {
         -1.0f,  1.0f,  0.0f, 1.0f,
         -1.0f, -1.0f,  0.0f, 0.0f,
-        1.0f, -1.0f,  1.0f, 0.0f,
-
+         1.0f, -1.0f,  1.0f, 0.0f,
         -1.0f,  1.0f,  0.0f, 1.0f,
-        1.0f, -1.0f,  1.0f, 0.0f,
-        1.0f,  1.0f,  1.0f, 1.0f
+         1.0f, -1.0f,  1.0f, 0.0f,
+         1.0f,  1.0f,  1.0f, 1.0f
     };
     unsigned int quadVAO, quadVBO;
     glGenVertexArrays(1, &quadVAO); glGenBuffers(1, &quadVBO);
@@ -172,123 +114,182 @@ int main() {
     glEnableVertexAttribArray(1);
     glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, 4 * sizeof(float), (void*)(2 * sizeof(float)));
 
-    static float blurStrength = 0.25f;
+    Shader ptShader("assets/shaders/screen_v.glsl", "assets/shaders/pt_fragment.glsl");
+    Shader screenShader("assets/shaders/screen_v.glsl", "assets/shaders/screen_f.glsl");
+    
+    Texture logoTex("assets/program_base/logo-bg.png", true); 
+    Texture floorTex("assets/base_tex.png", false);
+
+    // 4. Настройка накопительных буферов (Ping-Pong)
+    Framebuffer fb1(1280, 720);
+    Framebuffer fb2(1280, 720);
+    Framebuffer* prevFB = &fb1;
+    Framebuffer* currFB = &fb2;
+
+    glm::vec3 lastPos = camera.Position;
+    glm::mat4 lastView = camera.GetViewMatrix();
+    float accumulationFrame = 1.0f;
 
     defaultTheme();
 
-    glClearColor(0.1f, 0.1f, 0.1f, 1.0f);
-    glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+    // --- ПОДГОТОВКА ПЕРЕД ЦИКЛОМ ---
+    float logoRotation = 0.0f;
+
+    // Текстуры для Path Tracer
+    floorTex.bind(1);
+    logoTex.bind(2);
+
+    float logoRot = 0.0f;
+    glm::vec3 lastCamPos = camera.Position;
+    glm::mat4 lastCamView = camera.GetViewMatrix();
+
+    // Переменные состояния
+    bool firstMouse = true;
+
+    float lastFrame = 0.0f;
+    float lastX = 400, lastY = 300; // Центр экрана
+
+    bool isPaused = false;
+    bool pPressed = false;
+
+    int targetFPS = 60;
+
+    int maxSamplesPerFrame = 64;
 
     while (!glfwWindowShouldClose(window)) {
-        float currentFrame = glfwGetTime();
-        deltaTime = currentFrame - lastFrame;
-        lastFrame = currentFrame;
+        float frameStartTime = (float)glfwGetTime();
+        float deltaTime = frameStartTime - lastFrame;
+        lastFrame = frameStartTime;
 
         glfwPollEvents();
+        int width, height;
+        glfwGetFramebufferSize(window, &width, &height);
+        
+        // Рассчитываем бюджет времени на кадр (в секундах)
+        float frameBudget = 1.0f / (float)targetFPS;
 
-        // --- УПРАВЛЕНИЕ ---
-        if (glfwGetKey(window, GLFW_KEY_W) == GLFW_PRESS) camera.ProcessKeyboard(1, deltaTime);
-        if (glfwGetKey(window, GLFW_KEY_S) == GLFW_PRESS) camera.ProcessKeyboard(2, deltaTime);
-        if (glfwGetKey(window, GLFW_KEY_A) == GLFW_PRESS) camera.ProcessKeyboard(3, deltaTime);
-        if (glfwGetKey(window, GLFW_KEY_D) == GLFW_PRESS) camera.ProcessKeyboard(4, deltaTime);
+        bool moved = false;
 
+        // --- УПРАВЛЕНИЕ КАМЕРОЙ ---
+        if (glfwGetKey(window, GLFW_KEY_W) == GLFW_PRESS) { camera.ProcessKeyboard(1, deltaTime); moved = true; }
+        if (glfwGetKey(window, GLFW_KEY_S) == GLFW_PRESS) { camera.ProcessKeyboard(2, deltaTime); moved = true; }
+        if (glfwGetKey(window, GLFW_KEY_A) == GLFW_PRESS) { camera.ProcessKeyboard(3, deltaTime); moved = true; }
+        if (glfwGetKey(window, GLFW_KEY_D) == GLFW_PRESS) { camera.ProcessKeyboard(4, deltaTime); moved = true; }
+
+        // --- УПРАВЛЕНИЕ МЫШЬЮ (Правая кнопка) ---
         if (glfwGetMouseButton(window, GLFW_MOUSE_BUTTON_RIGHT) == GLFW_PRESS) {
             glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_DISABLED);
             double xpos, ypos;
             glfwGetCursorPos(window, &xpos, &ypos);
+
             if (firstMouse) {
-                lastX = xpos; lastY = ypos; firstMouse = false;
+                lastX = (float)xpos;
+                lastY = (float)ypos;
+                firstMouse = false;
             }
-            float xoffset = xpos - lastX;
-            float yoffset = lastY - ypos; // Перевернуто, так как y идет снизу вверх
-            lastX = xpos; lastY = ypos;
-            camera.ProcessMouseMovement(xoffset, yoffset);
+
+            float xoffset = (float)xpos - lastX;
+            float yoffset = lastY - (float)ypos; // Перевернуто, так как y-координаты идут снизу вверх
+
+            lastX = (float)xpos;
+            lastY = (float)ypos;
+
+            if (abs(xoffset) > 0.05f || abs(yoffset) > 0.05f) {
+                camera.ProcessMouseMovement(xoffset, yoffset);
+                moved = true;
+            }
         } else {
             glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_NORMAL);
             firstMouse = true;
         }
 
-        // --- UI ---
+        // --- ПАУЗА ВРАЩЕНИЯ (Клавиша P) ---
+        if (glfwGetKey(window, GLFW_KEY_P) == GLFW_PRESS && !pPressed) {
+            isPaused = !isPaused;
+            pPressed = true;
+        }
+        if (glfwGetKey(window, GLFW_KEY_P) == GLFW_RELEASE) pPressed = false;
+
+        float oldRotation = logoRotation;
+
+        if (!isPaused) {
+            logoRotation += deltaTime * 0.8f;
+        }
+
+        if (glm::length(camera.Position - lastCamPos) > 0.01f || abs(logoRotation - oldRotation) > 0.001f) {
+            moved = true;
+            lastCamPos = camera.Position; 
+        }
+
+        if (moved) accumulationFrame = 1.0f;
+
+        // --- РЕНДЕР ПАСС ---
+        // Сначала подготавливаем общие данные
+        ptShader.use();
+        ptShader.setVec2("u_resolution", glm::vec2((float)width, (float)height));
+        ptShader.setVec3("u_pos", camera.Position);
+        ptShader.setMat4("u_view", camera.GetViewMatrix());
+        ptShader.setVec3("u_logoPos", glm::vec3(0.0f, 0.0f, -2.0f));
+        ptShader.setFloat("u_logoRot", logoRotation);
+
+        // Эти текстуры НЕ меняются, их биндим один раз ПЕРЕД циклом do-while
+        glActiveTexture(GL_TEXTURE1); glBindTexture(GL_TEXTURE_2D, logoTex.ID);
+        ptShader.setInt("u_logoTex", 1);
+        glActiveTexture(GL_TEXTURE2); glBindTexture(GL_TEXTURE_2D, floorTex.ID);
+        ptShader.setInt("u_floorTex", 2);
+
+        int samplesThisFrame = 0;
+        do {
+            currFB->bind();
+            glViewport(0, 0, width, height);
+
+            glActiveTexture(GL_TEXTURE0); 
+            glBindTexture(GL_TEXTURE_2D, prevFB->textureColor);
+            ptShader.setInt("u_sample", 0);
+
+            ptShader.setFloat("u_sample_part", 1.0f / accumulationFrame);
+            ptShader.setVec2("u_seed1", glm::vec2((float)rand() / RAND_MAX, (float)rand() / RAND_MAX));
+
+            glBindVertexArray(quadVAO);
+            glDrawArrays(GL_TRIANGLES, 0, 6);
+            currFB->unbind();
+
+            std::swap(prevFB, currFB);
+            
+            accumulationFrame += 1.0f;
+            samplesThisFrame++;
+
+        } while ((glfwGetTime() - frameStartTime) < (frameBudget - 0.001f) && samplesThisFrame < maxSamplesPerFrame);
+
+        // --- ВЫВОД НА ЭКРАН (Screen Pass) ---
+        glViewport(0, 0, width, height);
+        glClear(GL_COLOR_BUFFER_BIT);
+        screenShader.use(); 
+        glActiveTexture(GL_TEXTURE0);
+        glBindTexture(GL_TEXTURE_2D, prevFB->textureColor);
+        glBindVertexArray(quadVAO);
+        glDrawArrays(GL_TRIANGLES, 0, 6);
+
+        // --- GUI ---
         ImGui_ImplOpenGL3_NewFrame();
         ImGui_ImplGlfw_NewFrame();
         ImGui::NewFrame();
         ImGui::Begin("Settings");
-        ImGui::SliderFloat("Motion Blur", &blurStrength, 0.0f, 1.0f);
-
-        if (ImGui::Button("Default")) defaultTheme();
-        ImGui::SameLine();
-        if (ImGui::Button("Dark Mode")) ImGui::StyleColorsDark();
-        ImGui::SameLine();
-        if (ImGui::Button("Light Mode")) ImGui::StyleColorsLight();
-        ImGui::SameLine();
-        if (ImGui::Button("Classic")) ImGui::StyleColorsClassic();
-
-        ImGui::Text("Use WASD and Right Mouse to fly");
+        ImGui::SliderInt("Target FPS", &targetFPS, 10, 240);
+        ImGui::SliderInt("Samples", &maxSamplesPerFrame, 1, 1024);
+        ImGui::Text("Total Samples: %.0f", accumulationFrame);
         ImGui::End();
-
-        // --- РЕНДЕР СЦЕНЫ В ТЕКСТУРУ ---
-        screenBuffer.bind();
-        glEnable(GL_DEPTH_TEST);
-        glClearColor(0.1f, 0.1f, 0.1f, 1.0f);
-        glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
-
-        // Включаем прозрачность для логотипа внутри фреймбуфера
-        glEnable(GL_BLEND);
-        glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
-
-        int width, height;
-        glfwGetFramebufferSize(window, &width, &height);
-        glViewport(0, 0, width, height);
-
-        glm::mat4 proj = glm::perspective(glm::radians(45.0f), (float)width/(float)height, 0.1f, 100.0f);
-        glm::mat4 view = camera.GetViewMatrix();
-
-        ourShader.use();
-        ourShader.setMat4("projection", proj);
-        ourShader.setMat4("view", view);
-
-        // Пол
-        floorTex.bind(0);
-        ourShader.setMat4("model", glm::translate(glm::mat4(1.0f), glm::vec3(0.0f, -0.5f, 0.0f)));
-        glBindVertexArray(planeVAO);
-        glDrawArrays(GL_TRIANGLES, 0, 6);
-
-        // Логотип
-        logoTex.bind(0);
-        glm::mat4 model = glm::translate(glm::mat4(1.0f), glm::vec3(0.0f, 0.5f, 0.0f));
-        model = glm::rotate(model, (float)glfwGetTime() * 2.0f, glm::vec3(0.0f, 1.0f, 0.0f));
-        ourShader.setMat4("model", model);
-        glBindVertexArray(cubeVAO);
-        glDrawArrays(GL_TRIANGLES, 0, 6);
-        
-        screenBuffer.unbind();
-
-        // --- ВЫВОД НА ЭКРАН (BLUR) ---
-        glClear(GL_DEPTH_BUFFER_BIT); 
-
-        glDisable(GL_DEPTH_TEST);
-        glEnable(GL_BLEND);
-        glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
-
-        screenShader.use();
-        float opacity = 1.0f - blurStrength;
-        glUniform1f(glGetUniformLocation(screenShader.ID, "opacity"), opacity);
-
-        glBindVertexArray(quadVAO);
-        glActiveTexture(GL_TEXTURE0);
-        glBindTexture(GL_TEXTURE_2D, screenBuffer.textureColor);
-        glDrawArrays(GL_TRIANGLES, 0, 6);
-
-        // --- IMGUI ---
         ImGui::Render();
         ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
 
         glfwSwapBuffers(window);
+
+        // Ограничение FPS
+        while ((glfwGetTime() - frameStartTime) < frameBudget) {
+            // Просто ждем
+        }
     }
 
-    // Очистка
-    glDeleteVertexArrays(1, &planeVAO);
-    glDeleteVertexArrays(1, &cubeVAO);
     glfwTerminate();
     return 0;
 }

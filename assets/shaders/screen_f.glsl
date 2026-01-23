@@ -6,7 +6,5 @@ uniform float opacity;
 
 void main() {
     vec3 color = texture(screenTexture, TexCoords).rgb;
-    // Мы выводим цвет кадра и задаем ему прозрачность.
-    // Благодаря glBlendFunc, он будет "накладываться" на старую картинку.
     FragColor = vec4(color, opacity);
 }
