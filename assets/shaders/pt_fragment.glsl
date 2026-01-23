@@ -44,7 +44,7 @@ void checkScene(vec3 ro, vec3 rd, inout Hit hit) {
         hit.emi = vec3(0); hit.rough = 1.0; hit.ior = 0.0;
     }
 
-    // 2. СВЕТЯЩАЯСЯ СФЕРА (Лампа)
+    // 2. СВЕТЯЩАЯСЯ СФЕРА
     vec3 lp = vec3(-4, 3, -6);
     vec3 oc = ro - lp;
     float b = dot(oc, rd), c = dot(oc, oc) - 2.0; 

@@ -36,22 +36,22 @@ ImGuiStyle& style = ImGui::GetStyle();
     // --- ЦВЕТОВАЯ ПАЛИТРА ---
     
     // Текст
-    colors[ImGuiCol_Text]                   = ImVec4(1.00f, 1.00f, 1.00f, 1.00f); // Чисто белый
+    colors[ImGuiCol_Text]                   = ImVec4(1.00f, 1.00f, 1.00f, 1.00f);
     colors[ImGuiCol_TextDisabled]           = ImVec4(0.50f, 0.50f, 0.50f, 1.00f);
 
     // Фоновые элементы
-    colors[ImGuiCol_WindowBg]               = ImVec4(0.06f, 0.06f, 0.06f, 1.00f); // Глубокий черный
+    colors[ImGuiCol_WindowBg]               = ImVec4(0.06f, 0.06f, 0.06f, 1.00f);
     colors[ImGuiCol_ChildBg]                = ImVec4(0.00f, 0.00f, 0.00f, 0.00f);
     colors[ImGuiCol_PopupBg]                = ImVec4(0.08f, 0.08f, 0.08f, 0.94f);
-    colors[ImGuiCol_Border]                 = ImVec4(0.25f, 0.25f, 0.25f, 1.00f); // Тонкие границы
+    colors[ImGuiCol_Border]                 = ImVec4(0.25f, 0.25f, 0.25f, 1.00f);
     colors[ImGuiCol_BorderShadow]           = ImVec4(0.00f, 0.00f, 0.00f, 0.00f);
 
-    // Поля ввода (Input, Checkbox и т.д.)
+    // Поля ввода
     colors[ImGuiCol_FrameBg]                = ImVec4(0.12f, 0.12f, 0.12f, 1.00f);
     colors[ImGuiCol_FrameBgHovered]         = ImVec4(0.18f, 0.18f, 0.18f, 1.00f);
     colors[ImGuiCol_FrameBgActive]          = ImVec4(0.25f, 0.25f, 0.25f, 1.00f);
 
-    // Заголовки (Tabs, Headers)
+    // Заголовки
     colors[ImGuiCol_TitleBg]                = ImVec4(0.04f, 0.04f, 0.04f, 1.00f);
     colors[ImGuiCol_TitleBgActive]          = ImVec4(0.04f, 0.04f, 0.04f, 1.00f);
     colors[ImGuiCol_TitleBgCollapsed]       = ImVec4(0.04f, 0.04f, 0.04f, 1.00f);
@@ -61,7 +61,7 @@ ImGuiStyle& style = ImGui::GetStyle();
 
     // Кнопки
     colors[ImGuiCol_Button]                 = ImVec4(0.15f, 0.15f, 0.15f, 1.00f);
-    colors[ImGuiCol_ButtonHovered]          = ImVec4(1.00f, 1.00f, 1.00f, 0.15f); // Эффект подсвечивания
+    colors[ImGuiCol_ButtonHovered]          = ImVec4(1.00f, 1.00f, 1.00f, 0.15f);
     colors[ImGuiCol_ButtonActive]           = ImVec4(1.00f, 1.00f, 1.00f, 0.25f);
 
     // Слайдеры и прокрутка
@@ -120,7 +120,7 @@ int main() {
     Texture logoTex("assets/program_base/logo-bg.png", true); 
     Texture floorTex("assets/base_tex.png", false);
 
-    // 4. Настройка накопительных буферов (Ping-Pong)
+    // 4. Настройка накопительных буферов Ping-Pong
     Framebuffer fb1(1280, 720);
     Framebuffer fb2(1280, 720);
     Framebuffer* prevFB = &fb1;
@@ -143,7 +143,7 @@ int main() {
     glm::vec3 lastCamPos = camera.Position;
     glm::mat4 lastCamView = camera.GetViewMatrix();
 
-    // Переменные состояния
+    // Состояние
     bool firstMouse = true;
 
     float lastFrame = 0.0f;
@@ -165,7 +165,6 @@ int main() {
         int width, height;
         glfwGetFramebufferSize(window, &width, &height);
         
-        // Рассчитываем бюджет времени на кадр (в секундах)
         float frameBudget = 1.0f / (float)targetFPS;
 
         bool moved = false;
@@ -176,7 +175,7 @@ int main() {
         if (glfwGetKey(window, GLFW_KEY_A) == GLFW_PRESS) { camera.ProcessKeyboard(3, deltaTime); moved = true; }
         if (glfwGetKey(window, GLFW_KEY_D) == GLFW_PRESS) { camera.ProcessKeyboard(4, deltaTime); moved = true; }
 
-        // --- УПРАВЛЕНИЕ МЫШЬЮ (Правая кнопка) ---
+        // --- УПРАВЛЕНИЕ МЫШЬЮ ---
         if (glfwGetMouseButton(window, GLFW_MOUSE_BUTTON_RIGHT) == GLFW_PRESS) {
             glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_DISABLED);
             double xpos, ypos;
@@ -189,7 +188,7 @@ int main() {
             }
 
             float xoffset = (float)xpos - lastX;
-            float yoffset = lastY - (float)ypos; // Перевернуто, так как y-координаты идут снизу вверх
+            float yoffset = lastY - (float)ypos;
 
             lastX = (float)xpos;
             lastY = (float)ypos;
@@ -224,7 +223,6 @@ int main() {
         if (moved) accumulationFrame = 1.0f;
 
         // --- РЕНДЕР ПАСС ---
-        // Сначала подготавливаем общие данные
         ptShader.use();
         ptShader.setVec2("u_resolution", glm::vec2((float)width, (float)height));
         ptShader.setVec3("u_pos", camera.Position);
@@ -232,7 +230,6 @@ int main() {
         ptShader.setVec3("u_logoPos", glm::vec3(0.0f, 0.0f, -2.0f));
         ptShader.setFloat("u_logoRot", logoRotation);
 
-        // Эти текстуры НЕ меняются, их биндим один раз ПЕРЕД циклом do-while
         glActiveTexture(GL_TEXTURE1); glBindTexture(GL_TEXTURE_2D, logoTex.ID);
         ptShader.setInt("u_logoTex", 1);
         glActiveTexture(GL_TEXTURE2); glBindTexture(GL_TEXTURE_2D, floorTex.ID);
@@ -261,7 +258,7 @@ int main() {
 
         } while ((glfwGetTime() - frameStartTime) < (frameBudget - 0.001f) && samplesThisFrame < maxSamplesPerFrame);
 
-        // --- ВЫВОД НА ЭКРАН (Screen Pass) ---
+        // --- ВЫВОД НА ЭКРАН ---
         glViewport(0, 0, width, height);
         glClear(GL_COLOR_BUFFER_BIT);
         screenShader.use(); 

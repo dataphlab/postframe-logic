@@ -5,7 +5,7 @@ Framebuffer::Framebuffer(int width, int height) : width(width), height(height) {
     glGenFramebuffers(1, &fbo);
     glBindFramebuffer(GL_FRAMEBUFFER, fbo);
 
-    // Создаем текстуру, в которую будем рендерить
+    // Создаем текстуру
     glGenTextures(1, &textureColor);
     glBindTexture(GL_TEXTURE_2D, textureColor);
     glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB, width, height, 0, GL_RGB, GL_UNSIGNED_BYTE, NULL);
@@ -15,7 +15,7 @@ Framebuffer::Framebuffer(int width, int height) : width(width), height(height) {
     // Прикрепляем текстуру к фреймбуферу
     glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, textureColor, 0);
 
-    // Добавляем буфер глубины (чтобы 3D работало внутри текстуры)
+    // Добавляем буфер глубины
     unsigned int rbo;
     glGenRenderbuffers(1, &rbo);
     glBindRenderbuffer(GL_RENDERBUFFER, rbo);
