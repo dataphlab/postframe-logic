@@ -32,7 +32,7 @@ add_executable(${PROJECT_NAME}
     src/main.cpp 
     src/Shader.cpp
     src/Texture.cpp
-    src/stb_image_impl.cpp 
+    src/TinyGltfImpl.cpp
     src/Framebuffer.cpp
     deps/src/gl.c
     ${IMGUI_SOURCES}

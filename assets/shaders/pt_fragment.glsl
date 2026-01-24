@@ -12,6 +12,49 @@ uniform vec3 u_logoPos;
 uniform float u_logoRot;
 uniform int u_useRayTracing;
 
+// --- СТРУКТУРЫ И БУФЕРЫ ---
+
+struct Triangle {
+    vec3 v0; float pad1;
+    vec3 v1; float pad2;
+    vec3 v2; float pad3;
+    vec3 color; float pad4;
+};
+
+struct BVHNode {
+    vec3 minBounds; int leftFirst;
+    vec3 maxBounds; int triCount;
+};
+
+struct MeshObject {
+    vec3 minAABB; float pad1;
+    vec3 maxAABB; float pad2;
+    int bvhRootIndex;
+    int pad3; int pad4; int pad5;
+};
+
+// Буферы данных
+layout(std430, binding = 2) buffer MeshBuffer {
+    Triangle triangles[];
+};
+
+layout(std430, binding = 3) buffer ObjectBuffer {
+    MeshObject objects[];
+};
+
+layout(std430, binding = 4) buffer BVHBuffer {
+    BVHNode bvhNodes[];
+};
+
+struct Hit { 
+    float t; 
+    vec3 p, n, albedo, emi; 
+    float rough, ior; 
+    int objId; 
+};
+
+// --- ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ ---
+
 uint seed;
 float rand() {
     seed = seed * 1664525u + 1013904223u;
@@ -20,30 +63,89 @@ float rand() {
 
 const float PI = 3.14159265;
 
-vec3 randomCosineHemisphere(vec3 n) {
-    float r1 = 2.0 * PI * rand(), r2 = rand(), r2s = sqrt(r2);
-    vec3 w = n;
-    vec3 u = normalize(cross(abs(w.x) > 0.1 ? vec3(0,1,0) : vec3(1,0,0), w));
-    vec3 v = cross(w, u);
-    return normalize(u * cos(r1) * r2s + v * sin(r1) * r2s + w * sqrt(1.0 - r2));
+// Пересечение с AABB
+float intersectAABB_dist(vec3 ro, vec3 invRd, vec3 boxMin, vec3 boxMax) {
+    vec3 tMin = (boxMin - ro) * invRd;
+    vec3 tMax = (boxMax - ro) * invRd;
+    vec3 t1 = min(tMin, tMax);
+    vec3 t2 = max(tMin, tMax);
+    float tNear = max(max(t1.x, t1.y), t1.z);
+    float tFar = min(min(t2.x, t2.y), t2.z);
+    return (tNear <= tFar && tFar > 0.0) ? tNear : 1e30;
 }
 
-// Случайная точка на сфере
-vec3 randomOnSphere() {
-    float z = 1.0 - 2.0 * rand();
-    float r = sqrt(max(0.0, 1.0 - z*z));
-    float phi = 2.0 * PI * rand();
-    return vec3(r * cos(phi), r * sin(phi), z);
+// Пересечение с Треугольником
+float intersectTriangle(vec3 ro, vec3 rd, vec3 v0, vec3 v1, vec3 v2) {
+    vec3 v0v1 = v1 - v0;
+    vec3 v0v2 = v2 - v0;
+    vec3 pvec = cross(rd, v0v2);
+    float det = dot(v0v1, pvec);
+    if (abs(det) < 0.00001) return 1e10;
+    float invDet = 1.0 / det;
+    vec3 tvec = ro - v0;
+    float u = dot(tvec, pvec) * invDet;
+    if (u < 0.0 || u > 1.0) return 1e10;
+    vec3 qvec = cross(tvec, v0v1);
+    float v = dot(rd, qvec) * invDet;
+    if (v < 0.0 || u + v > 1.0) return 1e10;
+    float t = dot(v0v2, qvec) * invDet;
+    return (t > 0.001) ? t : 1e10;
 }
 
-struct Hit { 
-    float t; 
-    vec3 p, n, albedo, emi; 
-    float rough, ior; 
-    int objId; // ID объекта для исключения при NEE
-};
+// --- ЛОГИКА BVH ---
 
-// Источник света
+void checkMeshBVH(vec3 ro, vec3 rd, int rootNodeIdx, inout Hit hit) {
+    vec3 invRd = 1.0 / rd;
+    
+    int stack[32];
+    int stackPtr = 0;
+    stack[stackPtr++] = rootNodeIdx;
+
+    while (stackPtr > 0) {
+        int nodeIdx = stack[--stackPtr];
+        
+        // Читаем узел
+        BVHNode node = bvhNodes[nodeIdx];
+
+        // Проверяем AABB узла. 
+        float distBox = intersectAABB_dist(ro, invRd, node.minBounds, node.maxBounds);
+        if (distBox >= hit.t) continue;
+
+        if (node.triCount > 0) { 
+            for (int i = 0; i < node.triCount; i++) {
+                int triIdx = node.leftFirst + i;
+                
+                Triangle tri = triangles[triIdx];
+                
+                float t = intersectTriangle(ro, rd, tri.v0, tri.v1, tri.v2);
+                if (t < hit.t) {
+                    hit.t = t; 
+                    hit.p = ro + rd * t;
+                    
+                    vec3 e1 = tri.v1 - tri.v0; 
+                    vec3 e2 = tri.v2 - tri.v0;
+                    hit.n = normalize(cross(e1, e2));
+                    if(dot(rd, hit.n) > 0.0) hit.n = -hit.n;
+                    
+                    hit.albedo = tri.color; 
+                    hit.emi = vec3(0); 
+                    hit.rough = 1.0; 
+                    hit.ior = 0.0; 
+                    hit.objId = 100 + triIdx;
+                }
+            }
+        } else {
+            stack[stackPtr++] = node.leftFirst;
+            stack[stackPtr++] = node.leftFirst + 1;
+            
+            // Защита от переполнения стека
+            if (stackPtr >= 32) break; 
+        }
+    }
+}
+
+// --- СЦЕНА И СВЕТ ---
+
 const vec3 LIGHT_POS = vec3(-4, 3, -6);
 const float LIGHT_RAD = 1.4;
 const vec3 LIGHT_EMI = vec3(15, 12, 9);
@@ -61,50 +163,6 @@ void sphere(vec3 ro, vec3 rd, vec3 pos, float rad, vec3 col, vec3 emi, float rou
     }
 }
 
-bool isVisible(vec3 from, vec3 to, int excludeId) {
-    vec3 dir = to - from;
-    float maxT = length(dir) - 0.002;
-    dir = normalize(dir);
-    
-    Hit hit; hit.t = 1e10; hit.objId = -1;
-    
-    // Пол
-    float tp = -(from.y + 1.0) / dir.y;
-    if(tp > 0.001 && tp < hit.t) hit.t = tp;
-    
-    // Сферы
-    if(excludeId != 0) sphere(from, dir, LIGHT_POS, LIGHT_RAD, vec3(0), vec3(0), 0.0, 0.0, 0, hit);
-    if(excludeId != 1) sphere(from, dir, vec3(0, 0, -4), 1.0, vec3(0), vec3(0), 0.0, 1.5, 1, hit);
-    if(excludeId != 2) sphere(from, dir, vec3(3, 0, -3), 1.1, vec3(0), vec3(0), 0.0, 0.0, 2, hit);
-    
-    return hit.t > maxT;
-}
-
-// Прямая выборка света
-vec3 sampleLight(vec3 p, vec3 n, vec3 albedo, float rough) {
-    // Случайная точка на источнике света
-    vec3 lightPoint = LIGHT_POS + randomOnSphere() * LIGHT_RAD;
-    vec3 toLight = lightPoint - p;
-    float dist = length(toLight);
-    vec3 L = toLight / dist;
-    
-    float NdotL = dot(n, L);
-    if(NdotL <= 0.0) return vec3(0);
-    
-    // Проверка видимости
-    if(!isVisible(p + n * 0.001, lightPoint, -1)) return vec3(0);
-    
-    // Площадь сферы
-    float lightArea = 4.0 * PI * LIGHT_RAD * LIGHT_RAD;
-    float cosAtLight = max(dot(-L, normalize(lightPoint - LIGHT_POS)), 0.0);
-    float solidAngle = (lightArea * cosAtLight) / (dist * dist);
-    
-    // Простая BRDF
-    float brdf = NdotL / PI;
-    
-    return albedo * LIGHT_EMI * brdf * solidAngle;
-}
-
 void checkScene(vec3 ro, vec3 rd, inout Hit hit) {
     // Пол
     float tp = -(ro.y + 1.0) / rd.y;
@@ -116,100 +174,98 @@ void checkScene(vec3 ro, vec3 rd, inout Hit hit) {
     
     // Сферы
     sphere(ro, rd, LIGHT_POS, LIGHT_RAD, vec3(1), LIGHT_EMI, 1.0, 0.0, 0, hit);
-    sphere(ro, rd, vec3(0, 0, -4), 1.0, vec3(1), vec3(0), 0.0, 1.5, 1, hit);
-    sphere(ro, rd, vec3(3, 0, -3), 1.1, vec3(0.8, 0.9, 1), vec3(0), 0.05, 0.0, 2, hit);
 
-    // Логотип
-    float sn = sin(-u_logoRot), cs = cos(-u_logoRot);
-    mat3 rot = mat3(cs, 0, sn, 0, 1, 0, -sn, 0, cs);
-    vec3 r_ro = rot * (ro - u_logoPos), r_rd = rot * rd;
-    float tq = -r_ro.z / r_rd.z;
-    if(tq > 0.001 && tq < hit.t) {
-        vec3 p = r_ro + r_rd * tq;
-        if(all(lessThan(abs(p.xy), vec2(1.0)))) {
-            vec4 tex = texture(u_logoTex, p.xy * 0.5 + 0.5);
-            if(tex.a > 0.5) {
-                hit.t = tq; hit.p = ro + rd*tq; hit.n = rot[2];
-                hit.albedo = tex.rgb; hit.emi = vec3(0); hit.rough = 0.9; hit.ior = 0.0;
-                hit.objId = 20;
-            }
+    // BVH ОБЪЕКТЫ
+    vec3 invRd = 1.0 / rd;
+    for(int i = 0; i < objects.length(); i++) {
+        // Проверяем главную коробку объекта
+        float dist = intersectAABB_dist(ro, invRd, objects[i].minAABB, objects[i].maxAABB);
+        
+        if (dist < hit.t) {
+            // Если луч попадает в габариты объекта, запускаем трассировку BVH
+            checkMeshBVH(ro, rd, objects[i].bvhRootIndex, hit);
         }
     }
 }
 
+vec3 randomCosineHemisphere(vec3 n) {
+    float r1 = 2.0 * PI * rand(), r2 = rand(), r2s = sqrt(r2);
+    vec3 w = n;
+    vec3 u = normalize(cross(abs(w.x) > 0.1 ? vec3(0,1,0) : vec3(1,0,0), w));
+    vec3 v = cross(w, u);
+    return normalize(u * cos(r1) * r2s + v * sin(r1) * r2s + w * sqrt(1.0 - r2));
+}
+
+vec3 randomOnSphere() {
+    float z = 1.0 - 2.0 * rand();
+    float r = sqrt(max(0.0, 1.0 - z*z));
+    float phi = 2.0 * PI * rand();
+    return vec3(r * cos(phi), r * sin(phi), z);
+}
+
+bool isVisible(vec3 from, vec3 to, int excludeId) {
+    vec3 dir = to - from;
+    float maxT = length(dir) - 0.002;
+    dir = normalize(dir);
+    
+    Hit hit; hit.t = 1e10; hit.objId = -1;
+    
+    float tp = -(from.y + 1.0) / dir.y;
+    if(tp > 0.001 && tp < hit.t) hit.t = tp;
+    
+    if(excludeId != 0) sphere(from, dir, LIGHT_POS, LIGHT_RAD, vec3(0), vec3(0), 0.0, 0.0, 0, hit);
+    
+    return hit.t > maxT;
+}
+
+vec3 sampleLight(vec3 p, vec3 n, vec3 albedo, float rough) {
+    vec3 lightPoint = LIGHT_POS + randomOnSphere() * LIGHT_RAD;
+    vec3 toLight = lightPoint - p;
+    float dist = length(toLight);
+    vec3 L = toLight / dist;
+    float NdotL = dot(n, L);
+    if(NdotL <= 0.0) return vec3(0);
+    if(!isVisible(p + n * 0.001, lightPoint, -1)) return vec3(0);
+    float lightArea = 4.0 * PI * LIGHT_RAD * LIGHT_RAD;
+    float cosAtLight = max(dot(-L, normalize(lightPoint - LIGHT_POS)), 0.0);
+    float solidAngle = (lightArea * cosAtLight) / (dist * dist);
+    float brdf = NdotL / PI;
+    return albedo * LIGHT_EMI * brdf * solidAngle;
+}
+
 vec3 trace(vec3 ro, vec3 rd) {
+    // Режим "Без лучей"
     if (u_useRayTracing == 0) {
         Hit hit; hit.t = 1e10; hit.objId = -1;
         checkScene(ro, rd, hit);
 
-        // Если попали в небо
-        if (hit.t > 1e9) {
-             return mix(vec3(0.5, 0.7, 1.0), vec3(1.0), rd.y * 0.5 + 0.5) * 0.5;
-        }
+        if (hit.t > 1e9) return mix(vec3(0.5, 0.7, 1.0), vec3(1.0), rd.y * 0.5 + 0.5) * 0.5;
 
         vec3 sunDir = normalize(vec3(0.5, 1.0, 0.5));
         float diff = max(dot(hit.n, sunDir), 0.2);
-
         return hit.albedo * diff + hit.emi;
     }
 
     vec3 col = vec3(0), mask = vec3(1);
     bool lastSpecular = true;
     
-    for(int i = 0; i < 8; i++) {
+    // -- !!!!!! ---
+    for(int i = 0; i < 16; i++) {
         Hit hit; hit.t = 1e10; hit.objId = -1;
         checkScene(ro, rd, hit);
         
         if(hit.t > 1e9) {
-            // Небо
             col += mask * mix(vec3(0.5, 0.7, 1.0), vec3(1.0), rd.y * 0.5 + 0.5) * 0.5;
             break;
         }
 
-        // Эмиссия только для прямых попаданий
-        if(lastSpecular || hit.objId == 0) {
-            col += mask * hit.emi;
-        }
+        if(lastSpecular || hit.objId == 0) col += mask * hit.emi;
         
-        float cosTheta = dot(-rd, hit.n);
-        float F0 = hit.ior > 0.0 ? pow((1.0 - hit.ior) / (1.0 + hit.ior), 2.0) : 0.04;
-        float fresnel = F0 + (1.0 - F0) * pow(max(1.0 - abs(cosTheta), 0.0), 5.0);
-
-        if(hit.ior > 0.0 && rand() > fresnel) {
-            // Преломление
-            bool outside = cosTheta > 0.0;
-            float eta = outside ? 1.0 / hit.ior : hit.ior;
-            vec3 refracted = refract(rd, outside ? hit.n : -hit.n, eta);
-            
-            if(length(refracted) < 0.5) {
-                // Полное внутреннее отражение
-                rd = reflect(rd, hit.n);
-                ro = hit.p + hit.n * 0.001;
-            } else {
-                rd = refracted;
-                ro = hit.p - hit.n * 0.001;
-            }
-            lastSpecular = true;
-            
-        } else if(hit.rough < 0.3) {
-            // Зеркальное отражение
-            vec3 reflected = reflect(rd, hit.n);
-            // Размытие
-            vec3 roughDir = randomCosineHemisphere(hit.n);
-            rd = normalize(mix(reflected, roughDir, hit.rough));
-            mask *= hit.albedo;
-            ro = hit.p + hit.n * 0.001;
-            lastSpecular = hit.rough < 0.1;
-            
-        } else {
-            // Диффузная поверхность, используем NEE
-            col += mask * sampleLight(hit.p, hit.n, hit.albedo, hit.rough);
-            
-            rd = randomCosineHemisphere(hit.n);
-            mask *= hit.albedo;
-            ro = hit.p + hit.n * 0.001;
-            lastSpecular = false;
-        }
+        col += mask * sampleLight(hit.p, hit.n, hit.albedo, hit.rough);
+        rd = randomCosineHemisphere(hit.n);
+        mask *= hit.albedo;
+        ro = hit.p + hit.n * 0.001;
+        lastSpecular = false;
         
         if(i > 2) {
             float p = max(mask.r, max(mask.g, mask.b));
@@ -222,15 +278,10 @@ vec3 trace(vec3 ro, vec3 rd) {
 
 void main() {
     seed = uint(gl_FragCoord.x) * 1973u + uint(gl_FragCoord.y) * 9277u + uint(u_seed1.x * 1000.0) * 26699u;
-    
     vec2 jitter = (u_useRayTracing == 1) ? (vec2(rand(), rand()) - 0.5) : vec2(0.0);
-    
     vec2 uv = ((TexCoords + jitter / u_resolution) * 2.0 - 1.0) * vec2(u_resolution.x / u_resolution.y, 1.0);
-    
     vec3 rd = normalize(mat3(inverse(u_view)) * vec3(uv, -1.5));
-    
     vec3 color = trace(u_pos, rd);
-    
     vec3 last = texture(u_sample, TexCoords).rgb;
     FragColor = vec4(mix(last, color, u_sample_part), 1.0);
 }

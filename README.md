@@ -36,3 +36,13 @@ cmake --build build
 # Run!
 prime-run ./build/postframe-logic
 ```
+
+# What is planned to be done? (Up to version 0.1)
+- Base Engine ✔
+- Path Tracing ✔
+- GLTF/GLB models support ✔
+- Texture support ✗
+- Max code optimization ✗
+- Camera Connect ✗
+- Microcontrollers Support ✗
+- Render to Video Mode ✗
