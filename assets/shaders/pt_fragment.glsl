@@ -156,7 +156,7 @@ vec3 trace(vec3 ro, vec3 rd) {
     vec3 col = vec3(0), mask = vec3(1);
     bool lastSpecular = true;
     
-    for(int i = 0; i < 6; i++) {
+    for(int i = 0; i < 8; i++) {
         Hit hit; hit.t = 1e10; hit.objId = -1;
         checkScene(ro, rd, hit);
         

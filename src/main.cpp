@@ -380,7 +380,7 @@ int main() {
         ImGui::Separator();
         
         // --- FPS ---
-        ImGui::SliderInt("Target FPS", &targetFPS, 10, 240);
+        ImGui::SliderInt("Target FPS", &targetFPS, 1, 240);
 
         ImGui::Separator();
 
@@ -398,7 +398,7 @@ int main() {
         ImGui::Separator();
 
         // --- RENDER SCALE ---
-        if (ImGui::SliderFloat("Scale %", &renderScalePercent, 10.0f, 200.0f, "%.0f%%")) {
+        if (ImGui::SliderFloat("Scale %", &renderScalePercent, 1.0f, 200.0f, "%.0f%%")) {
             accumulationFrame = 1.0f;
         }
 
