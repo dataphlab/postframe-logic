@@ -10,9 +10,9 @@
 **There is almost nothing in the project, soon (maybe) there will be something useful.**
 
 # Minimum specifications
-- Processor with AVX2 support
+- Processor better than potatoe
 - 8GB of RAM
-- Optional: CUDA-enabled graphics card with at least Turing architecture
+- Graphics card with at least Turing architecture (I'm serious, the rendering of this program will work terribly on older graphics cards.)
 
 # Quickstart
 Download or clone the repository
