@@ -3,7 +3,9 @@
 </p>
 
 ## A tool that provides several modes for working with graphics (and video, but in the future) in real time.
-## The program uses real-time Path Tracing rendering, make sure that your computer is not a grandfather yet.
+
+> [!WARNING]
+> The program uses real-time Path Tracing rendering, make sure that your computer is not a grandfather yet.
 
 **There is almost nothing in the project, soon (maybe) there will be something useful.**
 
