@@ -9,6 +9,8 @@
 
 **There is almost nothing in the project, soon (maybe) there will be something useful.**
 
+![Preview](assets/preview1.png)
+
 # Minimum specifications
 - Processor better than potato
 - 8GB of RAM
