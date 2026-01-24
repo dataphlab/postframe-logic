@@ -20,6 +20,7 @@
 #include <algorithm>
 #include <vector>
 #include <iostream>
+#include <thread>
 
 #define GLM_ENABLE_EXPERIMENTAL
 #include <glm/gtc/quaternion.hpp>
@@ -32,6 +33,16 @@ float lastFrame = 0.0f;
 float lastX = 640, lastY = 360;
 bool firstMouse = true;
 
+enum AppState {
+    STATE_LAUNCHER, // Стартовое окно выбора
+    STATE_ENGINE,   // Твой текущий режим (сцена, настройки)
+    STATE_MAIN_APP  // Будущий режим с камерой и контроллерами
+};
+
+AppState currentState = STATE_LAUNCHER; 
+
+char currentProjectName[128] = "Untitled Project";
+
 int loadMax = 5;
 
 // --- СТРУКТУРЫ ДЛЯ МЕШЕЙ ---
@@ -43,6 +54,67 @@ struct GPUMeshTriangle {
 };
 
 std::vector<GPUMeshTriangle> allTriangles;
+
+// Функции лаунчера
+void RenderLauncher(GLFWwindow* window) {
+    // Делаем окно на весь экран
+    int w, h;
+    glfwGetWindowSize(window, &w, &h);
+    ImGui::SetNextWindowPos(ImVec2(0, 0));
+    ImGui::SetNextWindowSize(ImVec2((float)w, (float)h));
+    
+    // Стилизация окна (без рамок, без заголовка)
+    ImGuiWindowFlags flags = ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoResize;
+    
+    ImGui::Begin("Launcher", nullptr, flags);
+
+    // Центрируем контент
+    float contentWidth = 400.0f;
+    ImGui::SetCursorPos(ImVec2((w - contentWidth) * 0.5f, h * 0.3f));
+    
+    ImGui::BeginGroup(); // Группируем элементы для центрирования
+        
+        // Заголовок
+        ImGui::PushFont(ImGui::GetIO().Fonts->Fonts[0]); // Если есть жирный шрифт, лучше использовать его
+        ImGui::Text("POSTFRAME LOGIC");
+        ImGui::PopFont();
+        ImGui::Separator();
+        ImGui::Spacing();
+        ImGui::Spacing();
+
+        ImGui::Text("Recent Projects:");
+        ImGui::BeginChild("Projects", ImVec2(contentWidth, 150), true);
+            if (ImGui::Selectable("  My_Cool_Scene.glb", false)) strcpy(currentProjectName, "My_Cool_Scene");
+            if (ImGui::Selectable("  Test_Scan_01.glb", false)) strcpy(currentProjectName, "Test_Scan_01");
+            if (ImGui::Selectable("  New Project...", false)) strcpy(currentProjectName, "New Project");
+        ImGui::EndChild();
+
+        ImGui::Spacing();
+        ImGui::Text("Select Mode:");
+        
+        // Кнопки выбора режима
+        if (ImGui::Button("ENGINE MODE (Editor)", ImVec2(contentWidth, 40))) {
+            currentState = STATE_ENGINE;
+            // Тут можно добавить логику загрузки сцены
+            std::cout << "Switching to Engine Mode..." << std::endl;
+        }
+
+        ImGui::Spacing();
+
+        if (ImGui::Button("MAIN APP (Hardware)", ImVec2(contentWidth, 40))) {
+            currentState = STATE_MAIN_APP;
+            std::cout << "Switching to Hardware Mode..." << std::endl;
+        }
+
+        ImGui::Spacing();
+        ImGui::Separator();
+        if (ImGui::Button("EXIT", ImVec2(contentWidth, 30))) {
+            glfwSetWindowShouldClose(window, true);
+        }
+
+    ImGui::EndGroup();
+    ImGui::End();
+}
 
 // --- ФУНКЦИИ ЗАГРУЗКИ ---
 
@@ -472,16 +544,46 @@ int main() {
         deltaTime = frameStartTime - lastFrame;
         lastFrame = frameStartTime;
 
-        glfwPollEvents();
+        glfwPollEvents(); // События обрабатываем всегда
+
+        // ============================================================
+        // 1. РЕЖИМ ЛАУНЧЕРА (МЕНЮ)
+        // ============================================================
+        if (currentState == STATE_LAUNCHER) {
+            // Очищаем экран (темно-серый фон)
+            int w, h; glfwGetFramebufferSize(window, &w, &h);
+            glViewport(0, 0, w, h);
+            glClearColor(0.15f, 0.15f, 0.15f, 1.0f);
+            glClear(GL_COLOR_BUFFER_BIT);
+
+            // Рисуем GUI
+            ImGui_ImplOpenGL3_NewFrame();
+            ImGui_ImplGlfw_NewFrame();
+            ImGui::NewFrame();
+            
+            RenderLauncher(window); // Вызов нашей функции
+            
+            ImGui::Render();
+            ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
+            
+            glfwSwapBuffers(window);
+            
+            // Спим, чтобы не грузить CPU в меню (экономия энергии)
+            std::this_thread::sleep_for(std::chrono::milliseconds(16));
+            continue; // <--- ПРОПУСКАЕМ ОСТАЛЬНОЙ КОД, ИДЕМ НА НОВЫЙ КРУГ
+        }
+
+        // ============================================================
+        // 2. РЕЖИМ ДВИЖКА / ПРИЛОЖЕНИЯ (ТЯЖЕЛЫЙ РЕНДЕР)
+        // ============================================================
 
         int windowWidth, windowHeight;
         glfwGetFramebufferSize(window, &windowWidth, &windowHeight);
 
-        // Расчет разрешения рендера
+        // --- ЛОГИКА РЕСАЙЗА И БУФЕРОВ ---
         int renderW = std::max(1, (int)(windowWidth * (renderScalePercent / 100.0f)));
         int renderH = std::max(1, (int)(windowHeight * (renderScalePercent / 100.0f)));
 
-        // Ресайз буферов при необходимости
         if (renderW != currentRenderW || renderH != currentRenderH) {
             delete fb1; delete fb2;
             fb1 = new Framebuffer(renderW, renderH);
@@ -493,12 +595,14 @@ int main() {
 
         bool moved = false;
 
-        // --- ВВОД (КАМЕРА) ---
+        // --- ВВОД (Только если мы НЕ в меню) ---
+        // Если MainApp, тут можно добавить другую логику управления
         if (glfwGetKey(window, GLFW_KEY_W) == GLFW_PRESS) { camera.ProcessKeyboard(1, deltaTime); moved = true; }
         if (glfwGetKey(window, GLFW_KEY_S) == GLFW_PRESS) { camera.ProcessKeyboard(2, deltaTime); moved = true; }
         if (glfwGetKey(window, GLFW_KEY_A) == GLFW_PRESS) { camera.ProcessKeyboard(3, deltaTime); moved = true; }
         if (glfwGetKey(window, GLFW_KEY_D) == GLFW_PRESS) { camera.ProcessKeyboard(4, deltaTime); moved = true; }
 
+        // Захват мыши (ПКМ)
         if (glfwGetMouseButton(window, GLFW_MOUSE_BUTTON_RIGHT) == GLFW_PRESS) {
             glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_DISABLED);
             double xpos, ypos;
@@ -512,6 +616,7 @@ int main() {
             firstMouse = true;
         }
 
+        // Пауза вращения лого
         if (glfwGetKey(window, GLFW_KEY_P) == GLFW_PRESS && !pPressed) { isPaused = !isPaused; pPressed = true; }
         if (glfwGetKey(window, GLFW_KEY_P) == GLFW_RELEASE) pPressed = false;
 
@@ -521,11 +626,9 @@ int main() {
         if (glm::length(camera.Position - lastCamPos) > 0.01f || abs(logoRotation - oldRotation) > 0.001f) {
             moved = true; lastCamPos = camera.Position; 
         }
-
-        // Сброс накопления при движении
         if (moved || !useRayTracing) accumulationFrame = 1.0f;
 
-        // --- RENDER PASS ---
+        // --- RENDER PASS (RAY TRACING) ---
         ptShader.use();
         ptShader.setVec2("u_resolution", glm::vec2((float)renderW, (float)renderH));
         ptShader.setVec3("u_pos", camera.Position);
@@ -533,26 +636,23 @@ int main() {
         ptShader.setVec3("u_logoPos", glm::vec3(-4.0f, 0.5f, 0.0f));
         ptShader.setFloat("u_logoRot", logoRotation);
         
-        // Обновляем ID
         ptShader.setInt("u_sample", 0);
         ptShader.setInt("u_logoTex", 1);
         ptShader.setInt("u_floorTex", 2);
         ptShader.setInt("u_useRayTracing", useRayTracing ? 1 : 0);
 
-        glActiveTexture(GL_TEXTURE1); 
-        glBindTexture(GL_TEXTURE_2D, logoTex.ID);
-        
-        glActiveTexture(GL_TEXTURE2); 
-        glBindTexture(GL_TEXTURE_2D, floorTex.ID);
+        glActiveTexture(GL_TEXTURE1); glBindTexture(GL_TEXTURE_2D, logoTex.ID);
+        glActiveTexture(GL_TEXTURE2); glBindTexture(GL_TEXTURE_2D, floorTex.ID);
 
-        int samplesThisFrame = 0;
-        float frameBudget = 1.0f / (float)targetFPS;
-
-        // Привязываем SSBO с мешами
+        // Биндинг SSBO
         glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 2, meshSSBO);
         glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 3, objectSSBO);
         glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 4, bvhSSBO);
 
+        int samplesThisFrame = 0;
+        float frameBudget = 1.0f / (float)targetFPS;
+
+        // Цикл накопления сэмплов
         do {
             currFB->bind();
             glViewport(0, 0, renderW, renderH);
@@ -576,7 +676,7 @@ int main() {
 
         } while ((glfwGetTime() - frameStartTime) < (frameBudget - 0.001f) && samplesThisFrame < maxSamplesPerFrame);
 
-        // --- SCREEN PASS Upscaling ---
+        // --- SCREEN PASS (Upscaling) ---
         glViewport(0, 0, windowWidth, windowHeight);
         glClear(GL_COLOR_BUFFER_BIT);
         
@@ -586,52 +686,78 @@ int main() {
         screenShader.setInt("screenTexture", 0);
         glBindVertexArray(quadVAO); glDrawArrays(GL_TRIANGLES, 0, 6);
 
-        // --- GUI ---
+        // --- GUI (ДВИЖОК / APP) ---
         ImGui_ImplOpenGL3_NewFrame();
         ImGui_ImplGlfw_NewFrame();
         ImGui::NewFrame();
-        ImGui::Begin("Settings");
 
-        float btnWidth4 = ImGui::GetContentRegionAvail().x / 4.0f - 5.0f;
+        // Отрисовка интерфейса зависит от режима
+        if (currentState == STATE_ENGINE) {
+            ImGui::Begin("Engine Settings");
+            
+            // --- КНОПКА ВОЗВРАТА В МЕНЮ ---
+            ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.6f, 0.2f, 0.2f, 1.0f));
+            if (ImGui::Button("<< Back to Launcher", ImVec2(-1, 0))) {
+                currentState = STATE_LAUNCHER;
+                // Сбрасываем курсор
+                glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_NORMAL);
+                firstMouse = true;
+            }
+            ImGui::PopStyleColor();
+            ImGui::Separator();
 
-        if (ImGui::Checkbox("ENABLE PATH TRACING", &useRayTracing)) accumulationFrame = 1.0f;
-        ImGui::Separator();
+            // ... Твои старые настройки ...
+            float btnWidth4 = ImGui::GetContentRegionAvail().x / 4.0f - 5.0f;
+            if (ImGui::Checkbox("ENABLE PATH TRACING", &useRayTracing)) accumulationFrame = 1.0f;
+            ImGui::Separator();
 
-        ImGui::Text("Global Presets");
-        if (ImGui::Button("LOW", ImVec2(btnWidth4, 0))) { renderScalePercent = 50.0f; maxSamplesPerFrame = 8; accumulationFrame = 1.0f; } ImGui::SameLine();
-        if (ImGui::Button("MID", ImVec2(btnWidth4, 0))) { renderScalePercent = 75.0f; maxSamplesPerFrame = 16; accumulationFrame = 1.0f; } ImGui::SameLine();
-        if (ImGui::Button("HIGH", ImVec2(btnWidth4, 0))) { renderScalePercent = 100.0f; maxSamplesPerFrame = 32; accumulationFrame = 1.0f; } ImGui::SameLine();
-        if (ImGui::Button("ULTRA", ImVec2(btnWidth4, 0))) { renderScalePercent = 125.0f; maxSamplesPerFrame = 64; accumulationFrame = 1.0f; }
-        
-        ImGui::Separator();
-        ImGui::SliderInt("Target FPS", &targetFPS, 1, 240);
-        ImGui::Separator();
+            ImGui::Text("Global Presets");
+            if (ImGui::Button("LOW", ImVec2(btnWidth4, 0))) { renderScalePercent = 50.0f; maxSamplesPerFrame = 8; accumulationFrame = 1.0f; } ImGui::SameLine();
+            if (ImGui::Button("MID", ImVec2(btnWidth4, 0))) { renderScalePercent = 75.0f; maxSamplesPerFrame = 16; accumulationFrame = 1.0f; } ImGui::SameLine();
+            if (ImGui::Button("HIGH", ImVec2(btnWidth4, 0))) { renderScalePercent = 100.0f; maxSamplesPerFrame = 32; accumulationFrame = 1.0f; } ImGui::SameLine();
+            if (ImGui::Button("ULTRA", ImVec2(btnWidth4, 0))) { renderScalePercent = 125.0f; maxSamplesPerFrame = 64; accumulationFrame = 1.0f; }
+            
+            ImGui::Separator();
+            ImGui::SliderInt("Target FPS", &targetFPS, 1, 240);
+            ImGui::Separator();
 
-        if (!useRayTracing) ImGui::BeginDisabled();
-        ImGui::SliderInt("Samples", &maxSamplesPerFrame, 0, 1024);
-        if (ImGui::Button("8 smp", ImVec2(btnWidth4, 0))) maxSamplesPerFrame = 8; ImGui::SameLine();
-        if (ImGui::Button("16 smp", ImVec2(btnWidth4, 0))) maxSamplesPerFrame = 16; ImGui::SameLine();
-        if (ImGui::Button("32 smp", ImVec2(btnWidth4, 0))) maxSamplesPerFrame = 32; ImGui::SameLine();
-        if (ImGui::Button("64 smp", ImVec2(btnWidth4, 0))) maxSamplesPerFrame = 64;
-        if (!useRayTracing) ImGui::EndDisabled();
+            if (!useRayTracing) ImGui::BeginDisabled();
+            ImGui::SliderInt("Samples", &maxSamplesPerFrame, 0, 1024);
+            if (ImGui::Button("8 smp", ImVec2(btnWidth4, 0))) maxSamplesPerFrame = 8; ImGui::SameLine();
+            if (ImGui::Button("16 smp", ImVec2(btnWidth4, 0))) maxSamplesPerFrame = 16; ImGui::SameLine();
+            if (ImGui::Button("32 smp", ImVec2(btnWidth4, 0))) maxSamplesPerFrame = 32; ImGui::SameLine();
+            if (ImGui::Button("64 smp", ImVec2(btnWidth4, 0))) maxSamplesPerFrame = 64;
+            if (!useRayTracing) ImGui::EndDisabled();
 
-        ImGui::Separator();
-        if (ImGui::SliderFloat("Scale %", &renderScalePercent, 1.0f, 200.0f, "%.0f%%")) accumulationFrame = 1.0f;
-        if (ImGui::Button("50%", ImVec2(btnWidth4, 0))) { renderScalePercent = 50.0f; accumulationFrame = 1.0f; } ImGui::SameLine();
-        if (ImGui::Button("75%", ImVec2(btnWidth4, 0))) { renderScalePercent = 75.0f; accumulationFrame = 1.0f; } ImGui::SameLine();
-        if (ImGui::Button("100%", ImVec2(btnWidth4, 0))) { renderScalePercent = 100.0f; accumulationFrame = 1.0f; } ImGui::SameLine();
-        if (ImGui::Button("150%", ImVec2(btnWidth4, 0))) { renderScalePercent = 150.0f; accumulationFrame = 1.0f; }
+            ImGui::Separator();
+            if (ImGui::SliderFloat("Scale %", &renderScalePercent, 1.0f, 200.0f, "%.0f%%")) accumulationFrame = 1.0f;
+            
+            ImGui::Separator();
+            ImGui::TextColored(ImVec4(0.5f, 0.5f, 0.5f, 1.0f), "Res: %dx%d | Tris: %lu", renderW, renderH, allTriangles.size());
 
-        ImGui::Separator();
-        ImGui::TextColored(ImVec4(0.5f, 0.5f, 0.5f, 1.0f), "Res: %dx%d | Tris: %lu", renderW, renderH, allTriangles.size());
+            ImGui::End();
+        } 
+        else if (currentState == STATE_MAIN_APP) {
+            // Заглушка для будущего режима
+            ImGui::Begin("Main Application");
+            ImGui::Text("Hardware Mode (Under Construction)");
+            if (ImGui::Button("Back to Launcher")) {
+                currentState = STATE_LAUNCHER;
+                glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_NORMAL);
+            }
+            ImGui::End();
+        }
 
-        ImGui::End();
         ImGui::Render();
         ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
 
         glfwSwapBuffers(window);
 
-        // Лимитер FPS
+        // --- FPS LIMITER (Сон для CPU) ---
+        float timeToWait = frameBudget - (float)(glfwGetTime() - frameStartTime);
+        if (timeToWait > 0.001f) {
+            std::this_thread::sleep_for(std::chrono::milliseconds((int)(timeToWait * 1000)));
+        }
         while ((glfwGetTime() - frameStartTime) < frameBudget) {}
     }
 
