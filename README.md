@@ -10,7 +10,7 @@
 **There is almost nothing in the project, soon (maybe) there will be something useful.**
 
 # Minimum specifications
-- Processor better than potatoe
+- Processor better than potato
 - 8GB of RAM
 - Graphics card with at least Turing architecture (I'm serious, the rendering of this program will work terribly on older graphics cards.)
 
