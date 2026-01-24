@@ -8,6 +8,7 @@
 > The program uses real-time Path Tracing rendering, make sure that your computer is not a grandfather yet.
 
 **There is almost nothing in the project, soon (maybe) there will be something useful.**
+## **So far, only Demo functionality**
 
 ![Preview](assets/preview1.png)
 
