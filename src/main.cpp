@@ -34,14 +34,15 @@ float lastX = 640, lastY = 360;
 bool firstMouse = true;
 
 enum AppState {
-    STATE_LAUNCHER, // Стартовое окно выбора
-    STATE_ENGINE,   // Твой текущий режим (сцена, настройки)
-    STATE_MAIN_APP  // Будущий режим с камерой и контроллерами
+    STATE_LAUNCHER,
+    STATE_ENGINE,
+    STATE_MAIN_APP
 };
 
 AppState currentState = STATE_LAUNCHER; 
 
 char currentProjectName[128] = "Untitled Project";
+ImFont* launcherFont = nullptr;
 
 int loadMax = 5;
 
@@ -56,64 +57,64 @@ struct GPUMeshTriangle {
 std::vector<GPUMeshTriangle> allTriangles;
 
 // Функции лаунчера
-void RenderLauncher(GLFWwindow* window) {
-    // Делаем окно на весь экран
-    int w, h;
-    glfwGetWindowSize(window, &w, &h);
-    ImGui::SetNextWindowPos(ImVec2(0, 0));
-    ImGui::SetNextWindowSize(ImVec2((float)w, (float)h));
-    
-    // Стилизация окна (без рамок, без заголовка)
-    ImGuiWindowFlags flags = ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoResize;
-    
-    ImGui::Begin("Launcher", nullptr, flags);
+void RenderLauncherGUI(GLFWwindow* window) {
+    ImGui::SetNextWindowPos(ImVec2(100, 100), ImGuiCond_FirstUseEver);
+    ImGui::SetNextWindowSize(ImVec2(450, 400), ImGuiCond_FirstUseEver);
 
-    // Центрируем контент
-    float contentWidth = 400.0f;
-    ImGui::SetCursorPos(ImVec2((w - contentWidth) * 0.5f, h * 0.3f));
+    ImGuiWindowFlags flags = ImGuiWindowFlags_NoCollapse;
     
-    ImGui::BeginGroup(); // Группируем элементы для центрирования
-        
+    if (launcherFont) ImGui::PushFont(launcherFont);
+
+    ImGui::PushStyleColor(ImGuiCol_WindowBg, ImVec4(0.05f, 0.05f, 0.05f, 0.85f));
+    ImGui::PushStyleColor(ImGuiCol_Border, ImVec4(0.3f, 0.3f, 0.3f, 0.5f));
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, 10.0f);
+
+    ImGui::Begin("PostFrame Launcher", nullptr, flags);
+
         // Заголовок
-        ImGui::PushFont(ImGui::GetIO().Fonts->Fonts[0]); // Если есть жирный шрифт, лучше использовать его
-        ImGui::Text("POSTFRAME LOGIC");
-        ImGui::PopFont();
-        ImGui::Separator();
-        ImGui::Spacing();
-        ImGui::Spacing();
-
-        ImGui::Text("Recent Projects:");
-        ImGui::BeginChild("Projects", ImVec2(contentWidth, 150), true);
-            if (ImGui::Selectable("  My_Cool_Scene.glb", false)) strcpy(currentProjectName, "My_Cool_Scene");
-            if (ImGui::Selectable("  Test_Scan_01.glb", false)) strcpy(currentProjectName, "Test_Scan_01");
-            if (ImGui::Selectable("  New Project...", false)) strcpy(currentProjectName, "New Project");
-        ImGui::EndChild();
-
-        ImGui::Spacing();
-        ImGui::Text("Select Mode:");
+        float windowWidth = ImGui::GetWindowSize().x;
+        float textWidth = ImGui::CalcTextSize("POSTFRAME LOGIC").x;
         
-        // Кнопки выбора режима
-        if (ImGui::Button("ENGINE MODE (Editor)", ImVec2(contentWidth, 40))) {
-            currentState = STATE_ENGINE;
-            // Тут можно добавить логику загрузки сцены
-            std::cout << "Switching to Engine Mode..." << std::endl;
-        }
-
-        ImGui::Spacing();
-
-        if (ImGui::Button("MAIN APP (Hardware)", ImVec2(contentWidth, 40))) {
-            currentState = STATE_MAIN_APP;
-            std::cout << "Switching to Hardware Mode..." << std::endl;
-        }
-
-        ImGui::Spacing();
+        ImGui::SetCursorPosX((windowWidth - textWidth) * 0.5f);
+        ImGui::Text("POSTFRAME LOGIC");
+        
         ImGui::Separator();
-        if (ImGui::Button("EXIT", ImVec2(contentWidth, 30))) {
+        ImGui::Spacing(); ImGui::Spacing();
+
+        ImGui::Text("Select Mode:");
+        ImGui::Spacing();
+
+        // Кнопки делаем широкими
+        float btnWidth = -FLT_MIN;
+
+        if (ImGui::Button("ENGINE MODE", ImVec2(btnWidth, 60))) {
+            currentState = STATE_ENGINE;
+        }
+        
+        ImGui::Spacing();
+
+        if (ImGui::Button("MAIN APP", ImVec2(btnWidth, 60))) {
+            currentState = STATE_MAIN_APP;
+        }
+
+        float currY = ImGui::GetCursorPosY();
+        float maxY = ImGui::GetWindowHeight() - 50.0f;
+        if (currY < maxY) ImGui::SetCursorPosY(maxY);
+
+        ImGui::Separator();
+        
+        // Кнопка Exit
+        ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.6f, 0.2f, 0.2f, 0.8f));
+        if (ImGui::Button("EXIT", ImVec2(btnWidth, 30))) {
             glfwSetWindowShouldClose(window, true);
         }
+        ImGui::PopStyleColor();
 
-    ImGui::EndGroup();
     ImGui::End();
+
+    ImGui::PopStyleVar();
+    ImGui::PopStyleColor(2);
+    if (launcherFont) ImGui::PopFont();
 }
 
 // --- ФУНКЦИИ ЗАГРУЗКИ ---
@@ -437,7 +438,7 @@ int main() {
     loadNow++;
     std::cout << "Init GLFW [" << loadNow << "/" << loadMax << "]" << std::endl;
 
-    GLFWwindow* window = glfwCreateWindow(1280, 720, "PostFrame Logic V0.0.5", NULL, NULL);
+    GLFWwindow* window = glfwCreateWindow(1280, 720, "PostFrame Logic V0.0.51", NULL, NULL);
     if (!window) return -1;
     glfwMakeContextCurrent(window);
     if (!gladLoadGL(glfwGetProcAddress)) return -1;
@@ -453,6 +454,15 @@ int main() {
     ImGui_ImplGlfw_InitForOpenGL(window, true);
     ImGui_ImplOpenGL3_Init("#version 460");
     defaultTheme();
+
+    ImGuiIO& io = ImGui::GetIO();
+    // Загружаем шрифт
+    launcherFont = io.Fonts->AddFontFromFileTTF("assets/fonts/SpaceGrotesk-Regular.ttf", 16.0f);
+    
+    if (launcherFont == nullptr) {
+        std::cout << "ERROR: Failed to load SpaceGrotesk font!" << std::endl;
+        launcherFont = io.Fonts->AddFontDefault();
+    }
 
     // Screen Quad
     float quadVertices[] = {
@@ -544,13 +554,12 @@ int main() {
         deltaTime = frameStartTime - lastFrame;
         lastFrame = frameStartTime;
 
-        glfwPollEvents(); // События обрабатываем всегда
+        glfwPollEvents();
 
         // ============================================================
         // 1. РЕЖИМ ЛАУНЧЕРА (МЕНЮ)
         // ============================================================
         if (currentState == STATE_LAUNCHER) {
-            // Очищаем экран (темно-серый фон)
             int w, h; glfwGetFramebufferSize(window, &w, &h);
             glViewport(0, 0, w, h);
             glClearColor(0.15f, 0.15f, 0.15f, 1.0f);
@@ -561,20 +570,19 @@ int main() {
             ImGui_ImplGlfw_NewFrame();
             ImGui::NewFrame();
             
-            RenderLauncher(window); // Вызов нашей функции
+            RenderLauncherGUI(window);
             
             ImGui::Render();
             ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
             
             glfwSwapBuffers(window);
             
-            // Спим, чтобы не грузить CPU в меню (экономия энергии)
             std::this_thread::sleep_for(std::chrono::milliseconds(16));
-            continue; // <--- ПРОПУСКАЕМ ОСТАЛЬНОЙ КОД, ИДЕМ НА НОВЫЙ КРУГ
+            continue;
         }
 
         // ============================================================
-        // 2. РЕЖИМ ДВИЖКА / ПРИЛОЖЕНИЯ (ТЯЖЕЛЫЙ РЕНДЕР)
+        // 2. РЕЖИМ ДВИЖКА (ТЯЖЕЛЫЙ РЕНДЕР)
         // ============================================================
 
         int windowWidth, windowHeight;
@@ -595,8 +603,7 @@ int main() {
 
         bool moved = false;
 
-        // --- ВВОД (Только если мы НЕ в меню) ---
-        // Если MainApp, тут можно добавить другую логику управления
+        // --- ВВОД ---
         if (glfwGetKey(window, GLFW_KEY_W) == GLFW_PRESS) { camera.ProcessKeyboard(1, deltaTime); moved = true; }
         if (glfwGetKey(window, GLFW_KEY_S) == GLFW_PRESS) { camera.ProcessKeyboard(2, deltaTime); moved = true; }
         if (glfwGetKey(window, GLFW_KEY_A) == GLFW_PRESS) { camera.ProcessKeyboard(3, deltaTime); moved = true; }
@@ -686,7 +693,7 @@ int main() {
         screenShader.setInt("screenTexture", 0);
         glBindVertexArray(quadVAO); glDrawArrays(GL_TRIANGLES, 0, 6);
 
-        // --- GUI (ДВИЖОК / APP) ---
+        // --- GUI (ДВИЖОК) ---
         ImGui_ImplOpenGL3_NewFrame();
         ImGui_ImplGlfw_NewFrame();
         ImGui::NewFrame();
@@ -738,9 +745,8 @@ int main() {
             ImGui::End();
         } 
         else if (currentState == STATE_MAIN_APP) {
-            // Заглушка для будущего режима
             ImGui::Begin("Main Application");
-            ImGui::Text("Hardware Mode (Under Construction)");
+            ImGui::Text("E");
             if (ImGui::Button("Back to Launcher")) {
                 currentState = STATE_LAUNCHER;
                 glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_NORMAL);
@@ -753,7 +759,6 @@ int main() {
 
         glfwSwapBuffers(window);
 
-        // --- FPS LIMITER (Сон для CPU) ---
         float timeToWait = frameBudget - (float)(glfwGetTime() - frameStartTime);
         if (timeToWait > 0.001f) {
             std::this_thread::sleep_for(std::chrono::milliseconds((int)(timeToWait * 1000)));
