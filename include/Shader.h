@@ -32,5 +32,10 @@ public:
     void setVec3(const std::string &name, const glm::vec3 &value) const {
         glUniform3fv(glGetUniformLocation(ID, name.c_str()), 1, &value[0]);
     }
+
+    void setBool(const std::string &name, bool value) const {
+    glUniform1i(glGetUniformLocation(ID, name.c_str()), (int)value);
+    }
 };
+
 #endif

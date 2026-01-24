@@ -30,10 +30,11 @@ set(IMGUI_SOURCES
 # Создаем исполняемый файл
 add_executable(${PROJECT_NAME} 
     src/main.cpp 
-    src/Shader.cpp
-    src/Texture.cpp
+    src/renderer/Shader.cpp
+    src/renderer/Texture.cpp
     src/TinyGltfImpl.cpp
-    src/Framebuffer.cpp
+    src/renderer/Framebuffer.cpp
+    src/utils/themes.cpp
     deps/src/gl.c
     ${IMGUI_SOURCES}
 )

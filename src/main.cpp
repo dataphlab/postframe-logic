@@ -10,6 +10,8 @@
 #include "Shader.h"
 #include "Texture.h"
 
+#include "themes.h"
+
 #include "imgui.h"
 #include "imgui_impl_glfw.h"
 #include "imgui_impl_opengl3.h"
@@ -44,7 +46,22 @@ AppState currentState = STATE_LAUNCHER;
 char currentProjectName[128] = "Untitled Project";
 ImFont* launcherFont = nullptr;
 
-int loadMax = 5;
+int loadMax = 6;
+
+struct GPULight {
+    glm::vec3 position;
+    float radius;
+    glm::vec3 emission;
+    float pad; 
+};
+
+GLuint lightSSBO;
+std::vector<GPULight> allLights;
+
+// Функция для добавления света
+void AddLight(glm::vec3 pos, float rad, glm::vec3 power) {
+    allLights.push_back({pos, rad, power, 0.0f});
+}
 
 // --- СТРУКТУРЫ ДЛЯ МЕШЕЙ ---
 struct GPUMeshTriangle {
@@ -110,7 +127,7 @@ void RenderLauncherGUI(GLFWwindow* window) {
 // Рекурсивная функция для обхода дерева узлов
 void ProcessNode(const tinygltf::Model& model, const tinygltf::Node& node, glm::mat4 currentTransform, std::vector<GPUMeshTriangle>& outTriangles) {
     
-    // 1. Вычисляем матрицу
+    // Вычисляем матрицу
     glm::mat4 localTransform = glm::mat4(1.0f);
     if (node.matrix.size() == 16) {
         float m[16];
@@ -370,75 +387,6 @@ void CreateTestPyramid() {
     allTriangles.push_back(t);
 }
 
-// --- ТЕМА ИНТЕРФЕЙСА ---
-void defaultTheme() {
-    ImGuiStyle& style = ImGui::GetStyle();
-    ImVec4* colors = style.Colors;
-
-    // === Основные параметры стиля ===
-    style.WindowRounding    = 4.0f;   // Лёгкое скругление окон
-    style.FrameRounding     = 3.0f;   // Скругление элементов ввода/кнопок
-    style.PopupRounding     = 4.0f;
-    style.ScrollbarRounding = 6.0f;
-    style.GrabRounding      = 3.0f;
-
-    style.WindowPadding     = ImVec2(10, 10);
-    style.FramePadding      = ImVec2(6, 4);
-    style.ItemSpacing       = ImVec2(8, 6);
-    style.ItemInnerSpacing  = ImVec2(6, 6);
-
-    // === Цветовая палитра (строго чёрно-белая с оттенками серого) ===
-    // Фон
-    colors[ImGuiCol_WindowBg]          = ImVec4(0.08f, 0.08f, 0.08f, 1.00f); // Почти чёрный (#141414)
-    colors[ImGuiCol_PopupBg]           = ImVec4(0.10f, 0.10f, 0.10f, 0.98f); // Чуть светлее фона
-    colors[ImGuiCol_ChildBg]           = ImVec4(0.07f, 0.07f, 0.07f, 1.00f); // Для дочерних окон
-
-    // Заголовки
-    colors[ImGuiCol_TitleBg]           = ImVec4(0.12f, 0.12f, 0.12f, 1.00f); // Тёмно-серый (#1F1F1F)
-    colors[ImGuiCol_TitleBgActive]     = ImVec4(0.18f, 0.18f, 0.18f, 1.00f); // Активный заголовок
-    colors[ImGuiCol_TitleBgCollapsed]  = ImVec4(0.08f, 0.08f, 0.08f, 1.00f); // Свёрнутый
-
-    // Кнопки
-    colors[ImGuiCol_Button]            = ImVec4(0.20f, 0.20f, 0.20f, 1.00f); // Нейтральный серый (#333333)
-    colors[ImGuiCol_ButtonHovered]     = ImVec4(0.28f, 0.28f, 0.28f, 1.00f); // Светлее при наведении
-    colors[ImGuiCol_ButtonActive]      = ImVec4(0.35f, 0.35f, 0.35f, 1.00f); // Ещё светлее при нажатии
-
-    // Рамки и поля ввода
-    colors[ImGuiCol_Border]            = ImVec4(0.30f, 0.30f, 0.30f, 1.00f); // Серебристый (#4D4D4D)
-    colors[ImGuiCol_FrameBg]           = ImVec4(0.15f, 0.15f, 0.15f, 1.00f); // Фон полей ввода
-    colors[ImGuiCol_FrameBgHovered]    = ImVec4(0.20f, 0.20f, 0.20f, 1.00f);
-    colors[ImGuiCol_FrameBgActive]     = ImVec4(0.25f, 0.25f, 0.25f, 1.00f);
-
-    // Текст
-    colors[ImGuiCol_Text]              = ImVec4(0.95f, 0.95f, 0.95f, 1.00f); // Почти белый (#F2F2F2)
-    colors[ImGuiCol_TextDisabled]      = ImVec4(0.50f, 0.50f, 0.50f, 1.00f); // Серый текст
-
-    // Меню и выделение
-    colors[ImGuiCol_MenuBarBg]         = ImVec4(0.10f, 0.10f, 0.10f, 1.00f);
-    colors[ImGuiCol_Header]            = ImVec4(0.18f, 0.18f, 0.18f, 1.00f);
-    colors[ImGuiCol_HeaderHovered]     = ImVec4(0.25f, 0.25f, 0.25f, 1.00f);
-    colors[ImGuiCol_HeaderActive]      = ImVec4(0.30f, 0.30f, 0.30f, 1.00f);
-
-    // Скроллбар
-    colors[ImGuiCol_ScrollbarBg]       = ImVec4(0.05f, 0.05f, 0.05f, 1.00f);
-    colors[ImGuiCol_ScrollbarGrab]     = ImVec4(0.30f, 0.30f, 0.30f, 1.00f);
-    colors[ImGuiCol_ScrollbarGrabHovered] = ImVec4(0.40f, 0.40f, 0.40f, 1.00f);
-    colors[ImGuiCol_ScrollbarGrabActive]  = ImVec4(0.50f, 0.50f, 0.50f, 1.00f);
-
-    // Чекбоксы и радио
-    colors[ImGuiCol_CheckMark]         = ImVec4(0.95f, 0.95f, 0.95f, 1.00f); // Белая галочка
-
-    // Сепараторы
-    colors[ImGuiCol_Separator]         = ImVec4(0.30f, 0.30f, 0.30f, 1.00f);
-    colors[ImGuiCol_SeparatorHovered]  = ImVec4(0.45f, 0.45f, 0.45f, 1.00f);
-    colors[ImGuiCol_SeparatorActive]   = ImVec4(0.60f, 0.60f, 0.60f, 1.00f);
-
-    // Ресайз-хендлы
-    colors[ImGuiCol_ResizeGrip]        = ImVec4(0.30f, 0.30f, 0.30f, 0.30f);
-    colors[ImGuiCol_ResizeGripHovered] = ImVec4(0.45f, 0.45f, 0.45f, 0.60f);
-    colors[ImGuiCol_ResizeGripActive]  = ImVec4(0.60f, 0.60f, 0.60f, 0.90f);
-}
-
 glm::vec3 meshMin(1e9), meshMax(-1e9);
 
 void PrintGPUInfo() {
@@ -483,7 +431,7 @@ int main() {
     loadNow++;
     std::cout << "Init GLFW [" << loadNow << "/" << loadMax << "]" << std::endl;
 
-    GLFWwindow* window = glfwCreateWindow(1280, 720, "PostFrame Logic V0.0.52", NULL, NULL);
+    GLFWwindow* window = glfwCreateWindow(1280, 720, "PostFrame Logic V0.0.6", NULL, NULL);
     if (!window) return -1;
     glfwMakeContextCurrent(window);
     if (!gladLoadGL(glfwGetProcAddress)) return -1;
@@ -498,7 +446,7 @@ int main() {
     ImGui::CreateContext();
     ImGui_ImplGlfw_InitForOpenGL(window, true);
     ImGui_ImplOpenGL3_Init("#version 460");
-    defaultTheme();
+    theme::defaultTheme();
 
     ImGuiIO& io = ImGui::GetIO();
     // Загружаем шрифт
@@ -526,26 +474,26 @@ int main() {
     // 4. Shaders & Textures
     Shader ptShader("assets/shaders/screen_v.glsl", "assets/shaders/pt_fragment.glsl");
     Shader screenShader("assets/shaders/screen_v.glsl", "assets/shaders/screen_f.glsl");
-    
     Texture logoTex("assets/program_base/logo-bg.png", true); 
     Texture floorTex("assets/base_tex.png", false);
 
-    loadNow++;
-    std::cout << "Assets Loaded [" << loadNow << "/" << loadMax << "]" << std::endl;
-
-    LoadGLTF("assets/logo.glb", glm::vec3(0.0f, 0.0f, -10.0f), 1.0f);
+    LoadGLTF("assets/logo.glb", glm::vec3(-2.0f, 0.5f, 0.0f), 1.0f);
+    LoadGLTF("assets/monkey.glb", glm::vec3(2.0f, -0.5f, 0.0f), 1.0f);
 
     if (allTriangles.empty()) {
         std::cout << "No GLTF loaded, using Test Pyramid." << std::endl;
         CreateTestPyramid();
     }
 
+    loadNow++;
+    std::cout << "Assets Loaded [" << loadNow << "/" << loadMax << "]" << std::endl;
+
     // Создаем SSBO и грузим данные в видеокарту
     GLuint meshSSBO;
     glGenBuffers(1, &meshSSBO);
     glBindBuffer(GL_SHADER_STORAGE_BUFFER, meshSSBO);
     glBufferData(GL_SHADER_STORAGE_BUFFER, allTriangles.size() * sizeof(GPUMeshTriangle), allTriangles.data(), GL_STATIC_DRAW);
-    glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 2, meshSSBO); // Binding = 2 (как в шейдере)
+    glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 2, meshSSBO); // Binding = 2
     glBindBuffer(GL_SHADER_STORAGE_BUFFER, 0); // Unbind
 
     loadNow++;
@@ -555,7 +503,7 @@ int main() {
     glGenBuffers(1, &objectSSBO);
     glBindBuffer(GL_SHADER_STORAGE_BUFFER, objectSSBO);
     glBufferData(GL_SHADER_STORAGE_BUFFER, allObjects.size() * sizeof(GPUMeshObject), allObjects.data(), GL_STATIC_DRAW);
-    glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 3, objectSSBO); // ВАЖНО: Binding 3
+    glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 3, objectSSBO); // Binding 3
     glBindBuffer(GL_SHADER_STORAGE_BUFFER, 0);
 
     GLuint bvhSSBO;
@@ -592,6 +540,20 @@ int main() {
 
     loadNow++;
     std::cout << "Ready to Render! [" << loadNow << "/" << loadMax << "]" << std::endl;
+
+    bool showLearnWindow = true;
+
+    AddLight(glm::vec3(-4, 3, -6), 1.0f, glm::vec3(30, 24, 18));  // Теплый свет
+    AddLight(glm::vec3(5, 2, 0), 0.5f, glm::vec3(0, 20, 40));     // Синий акцент
+    AddLight(glm::vec3(0, 10, -5), 2.0f, glm::vec3(4, 4, 4));    // Тусклый заполняющий сверху
+
+    glGenBuffers(1, &lightSSBO);
+    glBindBuffer(GL_SHADER_STORAGE_BUFFER, lightSSBO);
+    glBufferData(GL_SHADER_STORAGE_BUFFER, allLights.size() * sizeof(GPULight), allLights.data(), GL_DYNAMIC_DRAW);
+    glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 5, lightSSBO);
+
+    loadNow++;
+    std::cout << "Light created [" << loadNow << "/" << loadMax << "]" << std::endl;
 
     // --- MAIN LOOP ---
     while (!glfwWindowShouldClose(window)) {
@@ -648,6 +610,27 @@ int main() {
 
         bool moved = false;
 
+        float t = (float)glfwGetTime();
+        float speed = 3.0f;
+        float radius = 5.0f;
+        float height = 3.0f;
+
+        // Первый свет
+        allLights[0].position.x = sin(t * speed) * radius;
+        allLights[0].position.z = cos(t * speed) * radius - 5.0f;
+        allLights[0].position.y = height;
+
+        // Второй свет
+        allLights[1].position.x = sin(t * speed + 3.1415f) * radius;
+        allLights[1].position.z = cos(t * speed + 3.1415f) * radius - 5.0f;
+        allLights[1].position.y = height;
+
+        // Обновляем данные в видеокарте
+        glBindBuffer(GL_SHADER_STORAGE_BUFFER, lightSSBO);
+        glBufferSubData(GL_SHADER_STORAGE_BUFFER, 0, allLights.size() * sizeof(GPULight), allLights.data());
+
+        if (useRayTracing) accumulationFrame = 1.0f;
+
         // --- ВВОД ---
         if (glfwGetKey(window, GLFW_KEY_W) == GLFW_PRESS) { camera.ProcessKeyboard(1, deltaTime); moved = true; }
         if (glfwGetKey(window, GLFW_KEY_S) == GLFW_PRESS) { camera.ProcessKeyboard(2, deltaTime); moved = true; }
@@ -685,11 +668,8 @@ int main() {
         ptShader.setVec2("u_resolution", glm::vec2((float)renderW, (float)renderH));
         ptShader.setVec3("u_pos", camera.Position);
         ptShader.setMat4("u_view", camera.GetViewMatrix());
-        ptShader.setVec3("u_logoPos", glm::vec3(-4.0f, 0.5f, 0.0f));
-        ptShader.setFloat("u_logoRot", logoRotation);
         
         ptShader.setInt("u_sample", 0);
-        ptShader.setInt("u_logoTex", 1);
         ptShader.setInt("u_floorTex", 2);
         ptShader.setInt("u_useRayTracing", useRayTracing ? 1 : 0);
 
@@ -734,17 +714,28 @@ int main() {
         
         screenShader.use(); 
         screenShader.setVec2("u_resolution", glm::vec2((float)windowWidth, (float)windowHeight));
-        glActiveTexture(GL_TEXTURE0); glBindTexture(GL_TEXTURE_2D, prevFB->textureColor);
+
+        glActiveTexture(GL_TEXTURE0); 
+        glBindTexture(GL_TEXTURE_2D, prevFB->textureColor);
         screenShader.setInt("screenTexture", 0);
-        glBindVertexArray(quadVAO); glDrawArrays(GL_TRIANGLES, 0, 6);
+
+        glBindVertexArray(quadVAO); 
+        glDrawArrays(GL_TRIANGLES, 0, 6);
 
         // --- GUI (ДВИЖОК) ---
         ImGui_ImplOpenGL3_NewFrame();
         ImGui_ImplGlfw_NewFrame();
         ImGui::NewFrame();
 
-        // Отрисовка интерфейса зависит от режима
         if (currentState == STATE_ENGINE) {
+            if (ImGui::BeginMainMenuBar()) {
+        if (ImGui::BeginMenu("Windows")) {
+            ImGui::MenuItem("Learn", NULL, &showLearnWindow);
+            ImGui::EndMenu();
+        }
+        ImGui::EndMainMenuBar();
+        }
+
             ImGui::Begin("Engine Settings");
             
             // --- КНОПКА ВОЗВРАТА В МЕНЮ ---
@@ -786,8 +777,28 @@ int main() {
             
             ImGui::Separator();
             ImGui::TextColored(ImVec4(0.5f, 0.5f, 0.5f, 1.0f), "Res: %dx%d | Tris: %lu", renderW, renderH, allTriangles.size());
+            
+            float fps = ImGui::GetIO().Framerate;
+
+            ImGui::TextColored(ImVec4(0.5f, 0.5f, 0.5f, 1.0f), "FPS: %.1f", fps);
 
             ImGui::End();
+
+            if (showLearnWindow) 
+            {
+                if (ImGui::Begin("Learn.", &showLearnWindow)) {
+
+                ImGui::Text("THE BASICS");
+                ImGui::Separator();
+                ImGui::Separator();
+                ImGui::Text("Change the graphics in the settings window");
+                ImGui::Separator();
+                ImGui::Text("Use the P-button to pause");
+
+                }
+
+                ImGui::End();
+            }
         } 
         else if (currentState == STATE_MAIN_APP) {
             ImGui::Begin("Main Application");

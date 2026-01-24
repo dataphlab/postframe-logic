@@ -38,11 +38,13 @@ prime-run ./build/postframe-logic
 ```
 
 # What is planned to be done? (Up to version 0.1)
+✔ - Done
+✗ - Not started
+— Work in progress
 - Base Engine ✔
 - Path Tracing ✔
 - GLTF/GLB models support ✔
-- Texture support ✗
-- Max code optimization ✗
-- Camera Connect ✗
-- Microcontrollers Support ✗
+- Texture support —
+- Max code optimization —
+- Light System ✔
 - Render to Video Mode ✗
