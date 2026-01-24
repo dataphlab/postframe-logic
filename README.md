@@ -2,7 +2,7 @@
   <img src="assets/program_base/logo-mini.png" width="250" alt="PostFrame-Logic Logo">
 </p>
 
-## A tool that allows you to do motion tracking in real time using a modified realsense D4xx/D5xx.
+## A tool that provides several modes for working with graphics (and video, but in the future) in real time.
 ## The program uses real-time Path Tracing rendering, make sure that your computer is not a grandfather yet.
 
 **There is almost nothing in the project, soon (maybe) there will be something useful.**
@@ -11,9 +11,6 @@
 - Processor with AVX2 support
 - 8GB of RAM
 - Optional: CUDA-enabled graphics card with at least Turing architecture
-- RealSense D4xx/D5xx
-- Raspberry Pi Pico
-- Any I2C MPU-6050 module
 
 # Quickstart
 Download or clone the repository
