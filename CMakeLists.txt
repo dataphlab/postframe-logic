@@ -3,6 +3,7 @@ project(postframe-logic)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
+set(OpenGL_GL_PREFERENCE GLVND)
 
 # Поиск зависимостей
 find_package(glfw3 REQUIRED)

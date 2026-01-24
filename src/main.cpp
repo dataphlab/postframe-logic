@@ -1,11 +1,13 @@
 #include <glad/gl.h>
 #include <GLFW/glfw3.h>
+
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
 #include <glm/gtc/type_ptr.hpp>
 
 #include "Shader.h"
 #include "Texture.h"
+
 #include "imgui.h"
 #include "imgui_impl_glfw.h"
 #include "imgui_impl_opengl3.h"
@@ -14,11 +16,15 @@
 
 #include "Camera.h"
 
+#include <algorithm>
+
 Camera camera(glm::vec3(0.0f, 2.0f, 6.0f));
 float deltaTime = 0.0f;
 float lastFrame = 0.0f;
 float lastX = 640, lastY = 360;
 bool firstMouse = true;
+
+int loadMax = 7;
 
 void defaultTheme() {
 ImGuiStyle& style = ImGui::GetStyle();
@@ -79,21 +85,45 @@ ImGuiStyle& style = ImGui::GetStyle();
 }
 
 int main() {
+    int loadNow = 0;
+
     glfwInit();
     glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 4);
     glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 6);
     glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
 
-    GLFWwindow* window = glfwCreateWindow(1280, 720, "Path Tracing Engine", NULL, NULL);
+    loadNow ++;
+    std::cout << "Init GLFW [" << loadNow << "/" << loadMax << "]" << std::endl;
+
+    GLFWwindow* window = glfwCreateWindow(1280, 720, "PostFrame Logic V0.0.4", NULL, NULL);
     if (!window) return -1;
     glfwMakeContextCurrent(window);
     if (!gladLoadGL(glfwGetProcAddress)) return -1;
+
+    loadNow ++;
+    std::cout << "Create Window [" << loadNow << "/" << loadMax << "]" << std::endl;
+
+    const GLubyte* vendor   = glGetString(GL_VENDOR);
+    const GLubyte* renderer = glGetString(GL_RENDERER);
+    const GLubyte* version  = glGetString(GL_VERSION);
+
+    std::cout << "------------------------------------------" << std::endl;
+    std::cout << "GPU Vendor:   " << vendor << std::endl;
+    std::cout << "GPU Renderer: " << renderer << std::endl;
+    std::cout << "GL Version:   " << version << std::endl;
+    std::cout << "------------------------------------------" << std::endl;
+
+    loadNow ++;
+    std::cout << "Get GPU [" << loadNow << "/" << loadMax << "]" << std::endl;
 
     // Инициализация ImGui
     IMGUI_CHECKVERSION();
     ImGui::CreateContext();
     ImGui_ImplGlfw_InitForOpenGL(window, true);
     ImGui_ImplOpenGL3_Init("#version 460");
+
+    loadNow ++;
+    std::cout << "Init ImGUI [" << loadNow << "/" << loadMax << "]" << std::endl;
 
     // Ресурсы
     float quadVertices[] = {
@@ -120,17 +150,25 @@ int main() {
     Texture logoTex("assets/program_base/logo-bg.png", true); 
     Texture floorTex("assets/base_tex.png", false);
 
-    // 4. Настройка накопительных буферов Ping-Pong
-    Framebuffer fb1(1280, 720);
-    Framebuffer fb2(1280, 720);
-    Framebuffer* prevFB = &fb1;
-    Framebuffer* currFB = &fb2;
+    loadNow ++;
+    std::cout << "Base meshs, textures and shaders load [" << loadNow << "/" << loadMax << "]" << std::endl;
+
+    int currentRenderW = 1280;
+    int currentRenderH = 720;
+    
+    Framebuffer* fb1 = new Framebuffer(currentRenderW, currentRenderH);
+    Framebuffer* fb2 = new Framebuffer(currentRenderW, currentRenderH);
+    Framebuffer* prevFB = fb1;
+    Framebuffer* currFB = fb2;
 
     glm::vec3 lastPos = camera.Position;
     glm::mat4 lastView = camera.GetViewMatrix();
     float accumulationFrame = 1.0f;
 
     defaultTheme();
+
+    loadNow ++;
+    std::cout << "Set theme [" << loadNow << "/" << loadMax << "]" << std::endl;
 
     // --- ПОДГОТОВКА ПЕРЕД ЦИКЛОМ ---
     float logoRotation = 0.0f;
@@ -143,11 +181,11 @@ int main() {
     glm::vec3 lastCamPos = camera.Position;
     glm::mat4 lastCamView = camera.GetViewMatrix();
 
-    // Состояние
+    // Состояния
     bool firstMouse = true;
 
     float lastFrame = 0.0f;
-    float lastX = 400, lastY = 300; // Центр экрана
+    float lastX = 640, lastY = 360;
 
     bool isPaused = false;
     bool pPressed = false;
@@ -156,15 +194,45 @@ int main() {
 
     int maxSamplesPerFrame = 64;
 
+    float renderScalePercent = 100.0f; 
+
+    bool useRayTracing = true; 
+
+    loadNow ++;
+    std::cout << "Load complete. Start while cycle [" << loadNow << "/" << loadMax << "]" << std::endl;
+
     while (!glfwWindowShouldClose(window)) {
         float frameStartTime = (float)glfwGetTime();
         float deltaTime = frameStartTime - lastFrame;
         lastFrame = frameStartTime;
 
         glfwPollEvents();
-        int width, height;
-        glfwGetFramebufferSize(window, &width, &height);
-        
+
+        int windowWidth, windowHeight;
+        glfwGetFramebufferSize(window, &windowWidth, &windowHeight);
+
+        int renderW = std::max(1, (int)(windowWidth * (renderScalePercent / 100.0f)));
+        int renderH = std::max(1, (int)(windowHeight * (renderScalePercent / 100.0f)));
+
+        if (renderW != currentRenderW || renderH != currentRenderH) {
+            // Удаляем старые буферы
+            delete fb1;
+            delete fb2;
+
+            fb1 = new Framebuffer(renderW, renderH);
+            fb2 = new Framebuffer(renderW, renderH);
+
+            // Сбрасываем указатели
+            prevFB = fb1;
+            currFB = fb2;
+
+            currentRenderW = renderW;
+            currentRenderH = renderH;
+
+            // Сбрасываем накопление
+            accumulationFrame = 1.0f;
+        }
+
         float frameBudget = 1.0f / (float)targetFPS;
 
         bool moved = false;
@@ -222,9 +290,11 @@ int main() {
 
         if (moved) accumulationFrame = 1.0f;
 
+        if (moved || !useRayTracing) accumulationFrame = 1.0f;
+
         // --- РЕНДЕР ПАСС ---
         ptShader.use();
-        ptShader.setVec2("u_resolution", glm::vec2((float)width, (float)height));
+        ptShader.setVec2("u_resolution", glm::vec2((float)renderW, (float)renderH));
         ptShader.setVec3("u_pos", camera.Position);
         ptShader.setMat4("u_view", camera.GetViewMatrix());
         ptShader.setVec3("u_logoPos", glm::vec3(0.0f, 0.0f, -2.0f));
@@ -235,10 +305,12 @@ int main() {
         glActiveTexture(GL_TEXTURE2); glBindTexture(GL_TEXTURE_2D, floorTex.ID);
         ptShader.setInt("u_floorTex", 2);
 
+        ptShader.setInt("u_useRayTracing", useRayTracing ? 1 : 0);
+
         int samplesThisFrame = 0;
         do {
             currFB->bind();
-            glViewport(0, 0, width, height);
+            glViewport(0, 0, renderW, renderH);
 
             glActiveTexture(GL_TEXTURE0); 
             glBindTexture(GL_TEXTURE_2D, prevFB->textureColor);
@@ -256,14 +328,24 @@ int main() {
             accumulationFrame += 1.0f;
             samplesThisFrame++;
 
+            if (!useRayTracing) break;
+
         } while ((glfwGetTime() - frameStartTime) < (frameBudget - 0.001f) && samplesThisFrame < maxSamplesPerFrame);
 
         // --- ВЫВОД НА ЭКРАН ---
-        glViewport(0, 0, width, height);
+        glViewport(0, 0, windowWidth, windowHeight);
         glClear(GL_COLOR_BUFFER_BIT);
+        
         screenShader.use(); 
+        screenShader.setVec2("u_resolution", glm::vec2((float)windowWidth, (float)windowHeight));
+        
         glActiveTexture(GL_TEXTURE0);
         glBindTexture(GL_TEXTURE_2D, prevFB->textureColor);
+        screenShader.setInt("screenTexture", 0);
+
+        glBindVertexArray(quadVAO);
+        glDrawArrays(GL_TRIANGLES, 0, 6);
+
         glBindVertexArray(quadVAO);
         glDrawArrays(GL_TRIANGLES, 0, 6);
 
@@ -272,21 +354,74 @@ int main() {
         ImGui_ImplGlfw_NewFrame();
         ImGui::NewFrame();
         ImGui::Begin("Settings");
+
+        float btnWidth4 = ImGui::GetContentRegionAvail().x / 4.0f - 5.0f;
+
+        if (ImGui::Checkbox("ENABLE PATH TRACING", &useRayTracing)) {
+            accumulationFrame = 1.0f;
+        }
+        ImGui::Separator();
+
+        // --- ГЛОБАЛЬНЫЕ ПРЕСЕТЫ ---
+        ImGui::Text("Global Presets");
+        if (ImGui::Button("LOW", ImVec2(btnWidth4, 0))) { 
+            renderScalePercent = 50.0f; maxSamplesPerFrame = 8; accumulationFrame = 1.0f; 
+        } ImGui::SameLine();
+        if (ImGui::Button("MID", ImVec2(btnWidth4, 0))) { 
+            renderScalePercent = 75.0f; maxSamplesPerFrame = 16; accumulationFrame = 1.0f; 
+        } ImGui::SameLine();
+        if (ImGui::Button("HIGH", ImVec2(btnWidth4, 0))) { 
+            renderScalePercent = 100.0f; maxSamplesPerFrame = 32; accumulationFrame = 1.0f; 
+        } ImGui::SameLine();
+        if (ImGui::Button("ULTRA", ImVec2(btnWidth4, 0))) { 
+            renderScalePercent = 125.0f; maxSamplesPerFrame = 64; accumulationFrame = 1.0f; 
+        }
+        
+        ImGui::Separator();
+        
+        // --- FPS ---
         ImGui::SliderInt("Target FPS", &targetFPS, 10, 240);
-        ImGui::SliderInt("Samples", &maxSamplesPerFrame, 1, 1024);
-        ImGui::Text("Total Samples: %.0f", accumulationFrame);
+
+        ImGui::Separator();
+
+        // --- СЕМПЛЫ ---
+        if (!useRayTracing) ImGui::BeginDisabled();
+        ImGui::SliderInt("Samples", &maxSamplesPerFrame, 0, 1024);
+
+        // 4 мини-пресета для семплов
+        if (ImGui::Button("8 smp", ImVec2(btnWidth4, 0))) { maxSamplesPerFrame = 8; } ImGui::SameLine();
+        if (ImGui::Button("32 smp", ImVec2(btnWidth4, 0))) { maxSamplesPerFrame = 32; } ImGui::SameLine();
+        if (ImGui::Button("64 smp", ImVec2(btnWidth4, 0))) { maxSamplesPerFrame = 64; } ImGui::SameLine();
+        if (ImGui::Button("128 smp", ImVec2(btnWidth4, 0))) { maxSamplesPerFrame = 128; }
+        if (!useRayTracing) ImGui::EndDisabled();
+
+        ImGui::Separator();
+
+        // --- RENDER SCALE ---
+        if (ImGui::SliderFloat("Scale %", &renderScalePercent, 10.0f, 200.0f, "%.0f%%")) {
+            accumulationFrame = 1.0f;
+        }
+
+        // 4 мини-пресета для масштаба
+        if (ImGui::Button("50%", ImVec2(btnWidth4, 0))) { renderScalePercent = 50.0f; accumulationFrame = 1.0f; } ImGui::SameLine();
+        if (ImGui::Button("75%", ImVec2(btnWidth4, 0))) { renderScalePercent = 75.0f; accumulationFrame = 1.0f; } ImGui::SameLine();
+        if (ImGui::Button("100%", ImVec2(btnWidth4, 0))) { renderScalePercent = 100.0f; accumulationFrame = 1.0f; } ImGui::SameLine();
+        if (ImGui::Button("150%", ImVec2(btnWidth4, 0))) { renderScalePercent = 150.0f; accumulationFrame = 1.0f; }
+
+        ImGui::Separator();
+        ImGui::TextColored(ImVec4(0.5f, 0.5f, 0.5f, 1.0f), "Res: %dx%d | Total: %.0f", renderW, renderH, accumulationFrame);
+
         ImGui::End();
         ImGui::Render();
         ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
 
         glfwSwapBuffers(window);
 
-        // Ограничение FPS
         while ((glfwGetTime() - frameStartTime) < frameBudget) {
-            // Просто ждем
         }
     }
 
+    delete fb1; delete fb2;
     glfwTerminate();
     return 0;
 }

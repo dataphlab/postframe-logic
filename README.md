@@ -3,6 +3,7 @@
 </p>
 
 ## A tool that allows you to do motion tracking in real time using a modified realsense D4xx/D5xx.
+## The program uses real-time Path Tracing rendering, make sure that your computer is not a grandfather yet.
 
 **There is almost nothing in the project, soon (maybe) there will be something useful.**
 
@@ -27,4 +28,11 @@ cmake --build build
 
 # Run!
 ./build/postframe-logic
+```
+
+> [!WARNING]
+> On a laptop with discrete graphics, use:
+```bash
+# Run!
+prime-run ./build/postframe-logic
 ```
