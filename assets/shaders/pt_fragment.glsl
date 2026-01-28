@@ -146,7 +146,7 @@ bool isVisible(vec3 from, vec3 to) {
     return hit.t > maxT;
 }
 
-// СЭМПЛИНГ ВСЕХ ИСТОЧНИКОВ ИЗ SSBO
+// НОВЫЙ СЭМПЛИНГ ВСЕХ ИСТОЧНИКОВ ИЗ SSBO
 vec3 sampleAllLights(vec3 p, vec3 n, vec3 albedo) {
     vec3 total = vec3(0);
     for(int i = 0; i < lights.length(); i++) {

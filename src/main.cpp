@@ -5,10 +5,11 @@
 #include <glm/gtc/matrix_transform.hpp>
 #include <glm/gtc/type_ptr.hpp>
 
-#include "tiny_gltf.h" 
-
 #include "Shader.h"
 #include "Texture.h"
+#include "LightSystem.h"
+#include "ModelLoader.h"
+#include "BVH.h"
 
 #include "themes.h"
 
@@ -28,7 +29,18 @@
 #include <glm/gtc/quaternion.hpp>
 #include <glm/gtx/quaternion.hpp>
 
+using namespace lightsys;
+
+#define RESET   "\033[0m"
+#define RED     "\033[31m"      /* Red */
+#define GREEN   "\033[32m"      /* Green */
+#define YELLOW  "\033[33m"      /* Yellow */
+#define BLUE    "\033[34m"      /* Blue */
+#define MAGENTA "\033[35m"      /* Magenta */
+#define CYAN    "\033[36m"      /* Cyan */
+
 // --- ГЛОБАЛЬНЫЕ ПЕРЕМЕННЫЕ ---
+
 Camera camera(glm::vec3(0.0f, 2.0f, 6.0f));
 float deltaTime = 0.0f;
 float lastFrame = 0.0f;
@@ -38,7 +50,7 @@ bool firstMouse = true;
 enum AppState {
     STATE_LAUNCHER,
     STATE_ENGINE,
-    STATE_MAIN_APP
+    STATE_RENDER
 };
 
 AppState currentState = STATE_LAUNCHER; 
@@ -46,32 +58,7 @@ AppState currentState = STATE_LAUNCHER;
 char currentProjectName[128] = "Untitled Project";
 ImFont* launcherFont = nullptr;
 
-int loadMax = 6;
-
-struct GPULight {
-    glm::vec3 position;
-    float radius;
-    glm::vec3 emission;
-    float pad; 
-};
-
-GLuint lightSSBO;
-std::vector<GPULight> allLights;
-
-// Функция для добавления света
-void AddLight(glm::vec3 pos, float rad, glm::vec3 power) {
-    allLights.push_back({pos, rad, power, 0.0f});
-}
-
-// --- СТРУКТУРЫ ДЛЯ МЕШЕЙ ---
-struct GPUMeshTriangle {
-    glm::vec3 v0; float pad1;
-    glm::vec3 v1; float pad2;
-    glm::vec3 v2; float pad3;
-    glm::vec3 color; float pad4;
-};
-
-std::vector<GPUMeshTriangle> allTriangles;
+int loadMax = 10;
 
 // Функции лаунчера
 void RenderLauncherGUI(GLFWwindow* window) {
@@ -104,8 +91,8 @@ void RenderLauncherGUI(GLFWwindow* window) {
         
         ImGui::Spacing();
 
-        if (ImGui::Button("MAIN APP", ImVec2(btnWidth, 60))) {
-            currentState = STATE_MAIN_APP;
+        if (ImGui::Button("RENDER", ImVec2(btnWidth, 60))) {
+            currentState = STATE_RENDER;
         }
 
         float currY = ImGui::GetCursorPosY();
@@ -122,275 +109,10 @@ void RenderLauncherGUI(GLFWwindow* window) {
     ImGui::End();
 }
 
-// --- ФУНКЦИИ ЗАГРУЗКИ ---
-
-// Рекурсивная функция для обхода дерева узлов
-void ProcessNode(const tinygltf::Model& model, const tinygltf::Node& node, glm::mat4 currentTransform, std::vector<GPUMeshTriangle>& outTriangles) {
-    
-    // Вычисляем матрицу
-    glm::mat4 localTransform = glm::mat4(1.0f);
-    if (node.matrix.size() == 16) {
-        float m[16];
-        for (int i = 0; i < 16; i++) m[i] = (float)node.matrix[i];
-        localTransform = glm::make_mat4(m);
-    } else {
-        if (node.translation.size() == 3) {
-            localTransform = glm::translate(localTransform, glm::vec3((float)node.translation[0], (float)node.translation[1], (float)node.translation[2]));
-        }
-        if (node.rotation.size() == 4) {
-            glm::quat q = glm::quat((float)node.rotation[3], (float)node.rotation[0], (float)node.rotation[1], (float)node.rotation[2]);
-            localTransform = localTransform * glm::mat4_cast(q);
-        }
-        if (node.scale.size() == 3) {
-            localTransform = glm::scale(localTransform, glm::vec3((float)node.scale[0], (float)node.scale[1], (float)node.scale[2]));
-        }
-    }
-    glm::mat4 globalTransform = currentTransform * localTransform;
-
-    // Обрабатываем Меш
-    if (node.mesh >= 0) {
-        const tinygltf::Mesh& mesh = model.meshes[node.mesh];
-
-        for (const auto& primitive : mesh.primitives) {
-            if (primitive.mode != TINYGLTF_MODE_TRIANGLES) continue;
-
-            // --- ЧТЕНИЕ МАТЕРИАЛА ---
-            glm::vec3 meshColor = glm::vec3(0.8f); // Серый по умолчанию
-            
-            if (primitive.material >= 0) {
-                const tinygltf::Material& mat = model.materials[primitive.material];
-                // PBR Metallic Roughness -> Base Color Factor (RGBA)
-                if (mat.pbrMetallicRoughness.baseColorFactor.size() == 4) {
-                    meshColor.r = (float)mat.pbrMetallicRoughness.baseColorFactor[0];
-                    meshColor.g = (float)mat.pbrMetallicRoughness.baseColorFactor[1];
-                    meshColor.b = (float)mat.pbrMetallicRoughness.baseColorFactor[2];
-                    // Alpha игнор
-                }
-            }
-
-            const float* positionBuffer = nullptr;
-            if (primitive.attributes.find("POSITION") != primitive.attributes.end()) {
-                const tinygltf::Accessor& accessor = model.accessors[primitive.attributes.at("POSITION")];
-                const tinygltf::BufferView& bufferView = model.bufferViews[accessor.bufferView];
-                const tinygltf::Buffer& buffer = model.buffers[bufferView.buffer];
-                positionBuffer = reinterpret_cast<const float*>(&buffer.data[bufferView.byteOffset + accessor.byteOffset]);
-            } else continue;
-
-            if (primitive.indices >= 0) {
-                const tinygltf::Accessor& indexAccessor = model.accessors[primitive.indices];
-                const tinygltf::BufferView& bufferView = model.bufferViews[indexAccessor.bufferView];
-                const tinygltf::Buffer& buffer = model.buffers[bufferView.buffer];
-
-                for (size_t i = 0; i < indexAccessor.count; i += 3) {
-                    int i0, i1, i2;
-                    if (indexAccessor.componentType == TINYGLTF_COMPONENT_TYPE_UNSIGNED_SHORT) {
-                        const unsigned short* buf = reinterpret_cast<const unsigned short*>(&buffer.data[bufferView.byteOffset + indexAccessor.byteOffset]);
-                        i0 = buf[i]; i1 = buf[i+1]; i2 = buf[i+2];
-                    } else if (indexAccessor.componentType == TINYGLTF_COMPONENT_TYPE_UNSIGNED_INT) {
-                        const unsigned int* buf = reinterpret_cast<const unsigned int*>(&buffer.data[bufferView.byteOffset + indexAccessor.byteOffset]);
-                        i0 = buf[i]; i1 = buf[i+1]; i2 = buf[i+2];
-                    } else if (indexAccessor.componentType == TINYGLTF_COMPONENT_TYPE_UNSIGNED_BYTE) {
-                        const unsigned char* buf = reinterpret_cast<const unsigned char*>(&buffer.data[bufferView.byteOffset + indexAccessor.byteOffset]);
-                        i0 = buf[i]; i1 = buf[i+1]; i2 = buf[i+2];
-                    } else continue;
-
-                    auto getVert = [&](int index) {
-                        glm::vec4 v = glm::vec4(positionBuffer[index*3], positionBuffer[index*3+1], positionBuffer[index*3+2], 1.0f);
-                        return glm::vec3(globalTransform * v);
-                    };
-
-                    GPUMeshTriangle tri;
-                    tri.v0 = getVert(i0);
-                    tri.v1 = getVert(i1);
-                    tri.v2 = getVert(i2);
-                    tri.color = meshColor; // ПРИМЕНЯЕМ ЦВЕТ
-                    
-                    outTriangles.push_back(tri);
-                }
-            }
-        }
-    }
-
-    // Дети
-    for (int childIndex : node.children) {
-        ProcessNode(model, model.nodes[childIndex], globalTransform, outTriangles);
-    }
-}
-
-// --- BVH СТРУКТУРЫ ---
-
-struct GPUBVHNode {
-    glm::vec3 minBounds; int leftFirst;
-    glm::vec3 maxBounds; int triCount;
-};
-
-std::vector<GPUBVHNode> allBVHNodes;
-
-struct GPUMeshObject {
-    glm::vec3 minAABB; float pad1;
-    glm::vec3 maxAABB; float pad2;
-    int bvhRootIndex;
-    int pad3; int pad4; int pad5;
-};
-
-std::vector<GPUMeshObject> allObjects; 
-
-// Функция обновления AABB для узла
-void UpdateNodeBounds(int nodeIdx, std::vector<GPUBVHNode>& nodes, const std::vector<GPUMeshTriangle>& tris) {
-    GPUBVHNode& node = nodes[nodeIdx];
-    node.minBounds = glm::vec3(1e9f);
-    node.maxBounds = glm::vec3(-1e9f);
-
-    for (int i = 0; i < node.triCount; i++) {
-        const GPUMeshTriangle& leafTri = tris[node.leftFirst + i];
-        node.minBounds = glm::min(node.minBounds, leafTri.v0);
-        node.minBounds = glm::min(node.minBounds, leafTri.v1);
-        node.minBounds = glm::min(node.minBounds, leafTri.v2);
-
-        node.maxBounds = glm::max(node.maxBounds, leafTri.v0);
-        node.maxBounds = glm::max(node.maxBounds, leafTri.v1);
-        node.maxBounds = glm::max(node.maxBounds, leafTri.v2);
-    }
-}
-
-// Рекурсивная функция разделения
-void Subdivide(int nodeIdx, std::vector<GPUBVHNode>& nodes, std::vector<GPUMeshTriangle>& tris) {
-
-    int nodeLeftFirst = nodes[nodeIdx].leftFirst;
-    int nodeTriCount  = nodes[nodeIdx].triCount;
-    glm::vec3 nodeMin = nodes[nodeIdx].minBounds;
-    glm::vec3 nodeMax = nodes[nodeIdx].maxBounds;
-
-    if (nodeTriCount <= 2) return;
-
-    // Логика разделения
-    glm::vec3 extent = nodeMax - nodeMin;
-    int axis = 0;
-    if (extent.y > extent.x) axis = 1;
-    if (extent.z > extent[axis]) axis = 2;
-
-    float splitPos = nodeMin[axis] + extent[axis] * 0.5f;
-
-    int i = nodeLeftFirst;
-    int j = i + nodeTriCount - 1;
-
-    while (i <= j) {
-        glm::vec3 centroid = (tris[i].v0 + tris[i].v1 + tris[i].v2) * 0.3333f;
-        if (centroid[axis] < splitPos) {
-            i++;
-        } else {
-            std::swap(tris[i], tris[j]);
-            j--;
-        }
-    }
-
-    int leftCount = i - nodeLeftFirst;
-    if (leftCount == 0 || leftCount == nodeTriCount) return;
-
-    // Создаем детей
-    int leftChildIdx = nodes.size();
-    nodes.push_back({});
-    nodes.push_back({});
-    
-    // Обновляем текущий узел
-    nodes[nodeIdx].leftFirst = leftChildIdx;
-    nodes[nodeIdx].triCount = 0;
-
-    // Настраиваем левого ребенка
-    nodes[leftChildIdx].leftFirst = nodeLeftFirst;
-    nodes[leftChildIdx].triCount = leftCount;
-    UpdateNodeBounds(leftChildIdx, nodes, tris);
-    
-    // Настраиваем правого ребенка
-    nodes[leftChildIdx + 1].leftFirst = i;
-    nodes[leftChildIdx + 1].triCount = nodeTriCount - leftCount;
-    UpdateNodeBounds(leftChildIdx + 1, nodes, tris);
-
-    // Рекурсия
-    Subdivide(leftChildIdx, nodes, tris);
-    Subdivide(leftChildIdx + 1, nodes, tris);
-}
-
-void LoadGLTF(const std::string& filename, glm::vec3 offset, float scale) {
-    tinygltf::Model model;
-    tinygltf::TinyGLTF loader;
-    std::string err, warn;
-    bool ret = false;
-
-    if (filename.find(".glb") != std::string::npos) ret = loader.LoadBinaryFromFile(&model, &err, &warn, filename);
-    else ret = loader.LoadASCIIFromFile(&model, &err, &warn, filename);
-
-    if (!ret) { std::cout << "Failed: " << filename << std::endl; return; }
-
-    // Временный вектор для сортировки треугольников
-    std::vector<GPUMeshTriangle> localTris;
-
-    glm::mat4 rootTransform = glm::mat4(1.0f);
-    rootTransform = glm::translate(rootTransform, offset);
-    rootTransform = glm::scale(rootTransform, glm::vec3(scale));
-
-    const tinygltf::Scene& scene = model.scenes[model.defaultScene > -1 ? model.defaultScene : 0];
-    for (int nodeIndex : scene.nodes) {
-        ProcessNode(model, model.nodes[nodeIndex], rootTransform, localTris);
-    }
-
-    if (localTris.empty()) return;
-
-    // --- СТРОИМ BVH ---
-    GPUBVHNode rootNode;
-    rootNode.leftFirst = 0;
-    rootNode.triCount = localTris.size();
-    
-    int bvhStartIndex = allBVHNodes.size(); 
-    allBVHNodes.push_back(rootNode);
-    
-    UpdateNodeBounds(bvhStartIndex, allBVHNodes, localTris);
-    Subdivide(bvhStartIndex, allBVHNodes, localTris);
-
-    // --- ОБЪЕДИНЯЕМ ---
-    int globalTriOffset = allTriangles.size();
-    
-    // Сдвигаем индексы треугольников в узлах
-    for (size_t i = bvhStartIndex; i < allBVHNodes.size(); i++) {
-        if (allBVHNodes[i].triCount > 0) {
-            allBVHNodes[i].leftFirst += globalTriOffset;
-        }
-    }
-
-    allTriangles.insert(allTriangles.end(), localTris.begin(), localTris.end());
-
-    GPUMeshObject obj;
-    obj.minAABB = allBVHNodes[bvhStartIndex].minBounds;
-    obj.maxAABB = allBVHNodes[bvhStartIndex].maxBounds;
-    obj.bvhRootIndex = bvhStartIndex;
-    
-    allObjects.push_back(obj);
-
-    std::cout << "Loaded: " << filename << " | Nodes: " << (allBVHNodes.size() - bvhStartIndex) << std::endl;
-}
-
-void CreateTestPyramid() {
-    int startIndex = allTriangles.size();
-    
-    GPUMeshTriangle t; 
-
-    t.color = glm::vec3(0.0f, 0.8f, 0.2f);
-    t.v0 = glm::vec3(-1, 0, -3); 
-    t.v1 = glm::vec3( 1, 0, -3); 
-    t.v2 = glm::vec3( 0, 2, -3);
-    allTriangles.push_back(t);
-
-    t.color = glm::vec3(1.0f, 0.0f, 0.0f);
-    t.v0 = glm::vec3( 1, 0, -3); 
-    t.v1 = glm::vec3( 0, 0, -5); 
-    t.v2 = glm::vec3( 0, 2, -3);
-    allTriangles.push_back(t);
-}
-
 glm::vec3 meshMin(1e9), meshMax(-1e9);
 
 void PrintGPUInfo() {
-    std::cout << "\n================ GPU INFO ================" << std::endl;
+    std::cout <<  YELLOW << "\n================ GPU INFO ================" << std::endl;
     
     std::cout << "Vendor:       " << glGetString(GL_VENDOR) << std::endl;
     std::cout << "Renderer:     " << glGetString(GL_RENDERER) << std::endl;
@@ -415,7 +137,7 @@ void PrintGPUInfo() {
         std::cout << "Free VRAM:    " << totalMemKb / 1024 << " MB (NVIDIA Detect)" << std::endl;
     }
 
-    std::cout << "==========================================\n" << std::endl;
+    std::cout << "==========================================\n" << RESET << std::endl;
 }
 
 // --- MAIN ---
@@ -431,13 +153,13 @@ int main() {
     loadNow++;
     std::cout << "Init GLFW [" << loadNow << "/" << loadMax << "]" << std::endl;
 
-    GLFWwindow* window = glfwCreateWindow(1280, 720, "PostFrame Logic V0.0.6", NULL, NULL);
+    GLFWwindow* window = glfwCreateWindow(1280, 720, "PostFrame Logic V0.0.62", NULL, NULL);
     if (!window) return -1;
     glfwMakeContextCurrent(window);
     if (!gladLoadGL(glfwGetProcAddress)) return -1;
 
     loadNow++;
-    std::cout << "Window Created [" << loadNow << "/" << loadMax << "]" << std::endl;
+    std::cout <<"Window Created [" << loadNow << "/" << loadMax << "]" << std::endl;
 
     PrintGPUInfo();
 
@@ -447,6 +169,9 @@ int main() {
     ImGui_ImplGlfw_InitForOpenGL(window, true);
     ImGui_ImplOpenGL3_Init("#version 460");
     theme::defaultTheme();
+
+    loadNow++;
+    std::cout << "Init ImGUI [" << loadNow << "/" << loadMax << "]" << std::endl;
 
     ImGuiIO& io = ImGui::GetIO();
     // Загружаем шрифт
@@ -506,12 +231,19 @@ int main() {
     glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 3, objectSSBO); // Binding 3
     glBindBuffer(GL_SHADER_STORAGE_BUFFER, 0);
 
+    loadNow++;
+    std::cout << "Objects Sent to GPU [" << loadNow << "/" << loadMax << "]" << std::endl;
+
     GLuint bvhSSBO;
     glGenBuffers(1, &bvhSSBO);
     glBindBuffer(GL_SHADER_STORAGE_BUFFER, bvhSSBO);
     glBufferData(GL_SHADER_STORAGE_BUFFER, allBVHNodes.size() * sizeof(GPUBVHNode), allBVHNodes.data(), GL_STATIC_DRAW);
     glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 4, bvhSSBO);
     glBindBuffer(GL_SHADER_STORAGE_BUFFER, 0);
+    
+    loadNow++;
+    std::cout << "BVH Sent to GPU [" << loadNow << "/" << loadMax << "]" << std::endl;
+
 
     // Framebuffers
     int currentRenderW = 1280;
@@ -539,7 +271,7 @@ int main() {
     logoTex.bind(2);
 
     loadNow++;
-    std::cout << "Ready to Render! [" << loadNow << "/" << loadMax << "]" << std::endl;
+    std::cout << GREEN << "Ready to Render! [" << loadNow << "/" << loadMax << "]" << RESET << std::endl;
 
     bool showLearnWindow = true;
 
@@ -547,13 +279,16 @@ int main() {
     AddLight(glm::vec3(5, 2, 0), 0.5f, glm::vec3(0, 20, 40));     // Синий акцент
     AddLight(glm::vec3(0, 10, -5), 2.0f, glm::vec3(4, 4, 4));    // Тусклый заполняющий сверху
 
+    loadNow++;
+    std::cout << "Light created [" << loadNow << "/" << loadMax << "]" << std::endl;
+
     glGenBuffers(1, &lightSSBO);
     glBindBuffer(GL_SHADER_STORAGE_BUFFER, lightSSBO);
     glBufferData(GL_SHADER_STORAGE_BUFFER, allLights.size() * sizeof(GPULight), allLights.data(), GL_DYNAMIC_DRAW);
     glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 5, lightSSBO);
 
     loadNow++;
-    std::cout << "Light created [" << loadNow << "/" << loadMax << "]" << std::endl;
+    std::cout << "Lights Sent to GPU [" << loadNow << "/" << loadMax << "]" << RESET << std::endl;
 
     // --- MAIN LOOP ---
     while (!glfwWindowShouldClose(window)) {
@@ -749,7 +484,6 @@ int main() {
             ImGui::PopStyleColor();
             ImGui::Separator();
 
-            // ... Твои старые настройки ...
             float btnWidth4 = ImGui::GetContentRegionAvail().x / 4.0f - 5.0f;
             if (ImGui::Checkbox("ENABLE PATH TRACING", &useRayTracing)) accumulationFrame = 1.0f;
             ImGui::Separator();
@@ -765,7 +499,7 @@ int main() {
             ImGui::Separator();
 
             if (!useRayTracing) ImGui::BeginDisabled();
-            ImGui::SliderInt("Samples", &maxSamplesPerFrame, 0, 1024);
+            ImGui::SliderInt("Samples", &maxSamplesPerFrame, 1, 1024);
             if (ImGui::Button("8 smp", ImVec2(btnWidth4, 0))) maxSamplesPerFrame = 8; ImGui::SameLine();
             if (ImGui::Button("16 smp", ImVec2(btnWidth4, 0))) maxSamplesPerFrame = 16; ImGui::SameLine();
             if (ImGui::Button("32 smp", ImVec2(btnWidth4, 0))) maxSamplesPerFrame = 32; ImGui::SameLine();
@@ -800,8 +534,8 @@ int main() {
                 ImGui::End();
             }
         } 
-        else if (currentState == STATE_MAIN_APP) {
-            ImGui::Begin("Main Application");
+        else if (currentState == STATE_RENDER) {
+            ImGui::Begin("RENDER");
             ImGui::Text("E");
             if (ImGui::Button("Back to Launcher")) {
                 currentState = STATE_LAUNCHER;

@@ -35,6 +35,9 @@ add_executable(${PROJECT_NAME}
     src/TinyGltfImpl.cpp
     src/renderer/Framebuffer.cpp
     src/utils/themes.cpp
+    src/renderer/LightSystem.cpp
+    src/utils/ModelLoader.cpp
+    src/utils/BVH.cpp
     deps/src/gl.c
     ${IMGUI_SOURCES}
 )
