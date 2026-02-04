@@ -153,7 +153,7 @@ int main() {
     loadNow++;
     std::cout << "Init GLFW [" << loadNow << "/" << loadMax << "]" << std::endl;
 
-    GLFWwindow* window = glfwCreateWindow(1280, 720, "PostFrame Logic V0.0.62", NULL, NULL);
+    GLFWwindow* window = glfwCreateWindow(1280, 720, "PostFrame Logic V0.0.65", NULL, NULL);
     if (!window) return -1;
     glfwMakeContextCurrent(window);
     if (!gladLoadGL(glfwGetProcAddress)) return -1;
@@ -201,9 +201,9 @@ int main() {
     Shader screenShader("assets/shaders/screen_v.glsl", "assets/shaders/screen_f.glsl");
     Texture logoTex("assets/program_base/logo-bg.png", true); 
     Texture floorTex("assets/base_tex.png", false);
+    Texture renderFloorTex("assets/render_base_tex.png", true);
 
-    LoadGLTF("assets/logo.glb", glm::vec3(-2.0f, 0.5f, 0.0f), 1.0f);
-    LoadGLTF("assets/monkey.glb", glm::vec3(2.0f, -0.5f, 0.0f), 1.0f);
+    LoadGLTF("assets/logo.glb", glm::vec3(0.0f, 0.5f, 0.0f), 1.0f);
 
     if (allTriangles.empty()) {
         std::cout << "No GLTF loaded, using Test Pyramid." << std::endl;
@@ -244,6 +244,14 @@ int main() {
     loadNow++;
     std::cout << "BVH Sent to GPU [" << loadNow << "/" << loadMax << "]" << std::endl;
 
+    GLuint selectionSSBO;
+    int initialHoverId = -1;
+
+    glGenBuffers(1, &selectionSSBO);
+    glBindBuffer(GL_SHADER_STORAGE_BUFFER, selectionSSBO);
+    glBufferData(GL_SHADER_STORAGE_BUFFER, sizeof(int), &initialHoverId, GL_DYNAMIC_READ);
+    glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 6, selectionSSBO);
+
 
     // Framebuffers
     int currentRenderW = 1280;
@@ -262,21 +270,22 @@ int main() {
     bool isPaused = false;
     bool pPressed = false;
     int targetFPS = 60;
-    int maxSamplesPerFrame = 64;
+    int maxSamplesPerFrame = 1;
     float renderScalePercent = 75.0f; 
     bool useRayTracing = false; 
 
     // Биндим текстуры
     floorTex.bind(1);
     logoTex.bind(2);
+    renderFloorTex.bind(3);
 
-    loadNow++;
+    loadNow++; 
     std::cout << GREEN << "Ready to Render! [" << loadNow << "/" << loadMax << "]" << RESET << std::endl;
 
-    bool showLearnWindow = true;
+    bool showLearnWindow = false;
 
-    AddLight(glm::vec3(-4, 3, -6), 1.0f, glm::vec3(30, 24, 18));  // Теплый свет
-    AddLight(glm::vec3(5, 2, 0), 0.5f, glm::vec3(0, 20, 40));     // Синий акцент
+    AddLight(glm::vec3(-4, 3, -6), 1.0f, glm::vec3(60, 48, 36));  // Теплый свет
+    AddLight(glm::vec3(5, 2, 0), 0.5f, glm::vec3(0, 40, 80));     // Синий акцент
     AddLight(glm::vec3(0, 10, -5), 2.0f, glm::vec3(4, 4, 4));    // Тусклый заполняющий сверху
 
     loadNow++;
@@ -289,6 +298,11 @@ int main() {
 
     loadNow++;
     std::cout << "Lights Sent to GPU [" << loadNow << "/" << loadMax << "]" << RESET << std::endl;
+
+    bool showLights = true;
+    bool useDenoise = true;
+    int mySelectedId = -1;
+    bool mouseWasPressed = false;
 
     // --- MAIN LOOP ---
     while (!glfwWindowShouldClose(window)) {
@@ -324,7 +338,7 @@ int main() {
         }
 
         // ============================================================
-        // 2. РЕЖИМ ДВИЖКА (ТЯЖЕЛЫЙ РЕНДЕР)
+        // 2. ОСТАЛЬНЫЕ РЕЖИМЫ
         // ============================================================
 
         int windowWidth, windowHeight;
@@ -349,16 +363,17 @@ int main() {
         float speed = 3.0f;
         float radius = 5.0f;
         float height = 3.0f;
+        glm::vec3 center(0.0f, height, 0.0f);
 
         // Первый свет
-        allLights[0].position.x = sin(t * speed) * radius;
-        allLights[0].position.z = cos(t * speed) * radius - 5.0f;
-        allLights[0].position.y = height;
+        allLights[0].position.x = center.x + sin(t * speed) * radius;
+        allLights[0].position.z = center.y + cos(t * speed) * radius - 5.0f;
+        allLights[0].position.y = center.z;
 
         // Второй свет
-        allLights[1].position.x = sin(t * speed + 3.1415f) * radius;
-        allLights[1].position.z = cos(t * speed + 3.1415f) * radius - 5.0f;
-        allLights[1].position.y = height;
+        allLights[1].position.x = center.x + sin(t * speed + 1.0f) * radius;
+        allLights[1].position.z = center.y + cos(t * speed + 3.1415f) * radius - 5.0f;
+        allLights[1].position.y = center.z + height;
 
         // Обновляем данные в видеокарте
         glBindBuffer(GL_SHADER_STORAGE_BUFFER, lightSSBO);
@@ -398,8 +413,20 @@ int main() {
         }
         if (moved || !useRayTracing) accumulationFrame = 1.0f;
 
-        // --- RENDER PASS (RAY TRACING) ---
+        double mx, my;
+        glfwGetCursorPos(window, &mx, &my);
+        glfwGetWindowSize(window, &windowWidth, &windowHeight);
+
+        // --- RENDER PASS ---
         ptShader.use();
+
+        ptShader.setInt("u_selectedId", mySelectedId);
+
+        float scaleX = (float)renderW / (float)windowWidth;
+        float scaleY = (float)renderH / (float)windowHeight;
+
+        ptShader.setVec2("u_mousePos", glm::vec2((float)mx * scaleX, ((float)windowHeight - (float)my) * scaleY));
+
         ptShader.setVec2("u_resolution", glm::vec2((float)renderW, (float)renderH));
         ptShader.setVec3("u_pos", camera.Position);
         ptShader.setMat4("u_view", camera.GetViewMatrix());
@@ -408,8 +435,25 @@ int main() {
         ptShader.setInt("u_floorTex", 2);
         ptShader.setInt("u_useRayTracing", useRayTracing ? 1 : 0);
 
+        ptShader.setInt("u_showLightGizmos", showLights ? 1 : 0);
+
+        if (currentState == STATE_ENGINE)
+        {
+            ptShader.setFloat("floorSize", 1000.0);
+        }
+        else {
+            ptShader.setFloat("floorSize", 5.0);
+        }
+
         glActiveTexture(GL_TEXTURE1); glBindTexture(GL_TEXTURE_2D, logoTex.ID);
-        glActiveTexture(GL_TEXTURE2); glBindTexture(GL_TEXTURE_2D, floorTex.ID);
+
+        if (currentState == STATE_ENGINE)
+        {
+            glActiveTexture(GL_TEXTURE2); glBindTexture(GL_TEXTURE_2D, floorTex.ID);
+        }
+        else {
+            glActiveTexture(GL_TEXTURE2); glBindTexture(GL_TEXTURE_2D, renderFloorTex.ID);
+        }
 
         // Биндинг SSBO
         glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 2, meshSSBO);
@@ -449,6 +493,8 @@ int main() {
         
         screenShader.use(); 
         screenShader.setVec2("u_resolution", glm::vec2((float)windowWidth, (float)windowHeight));
+        screenShader.setFloat("opacity", 1.0f);
+        screenShader.setInt("u_useDenoise", useDenoise ? 1 : 0);
 
         glActiveTexture(GL_TEXTURE0); 
         glBindTexture(GL_TEXTURE_2D, prevFB->textureColor);
@@ -462,8 +508,7 @@ int main() {
         ImGui_ImplGlfw_NewFrame();
         ImGui::NewFrame();
 
-        if (currentState == STATE_ENGINE) {
-            if (ImGui::BeginMainMenuBar()) {
+        if (ImGui::BeginMainMenuBar()) {
         if (ImGui::BeginMenu("Windows")) {
             ImGui::MenuItem("Learn", NULL, &showLearnWindow);
             ImGui::EndMenu();
@@ -471,7 +516,7 @@ int main() {
         ImGui::EndMainMenuBar();
         }
 
-            ImGui::Begin("Engine Settings");
+            ImGui::Begin("Render Settings");
             
             // --- КНОПКА ВОЗВРАТА В МЕНЮ ---
             ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.6f, 0.2f, 0.2f, 1.0f));
@@ -486,6 +531,10 @@ int main() {
 
             float btnWidth4 = ImGui::GetContentRegionAvail().x / 4.0f - 5.0f;
             if (ImGui::Checkbox("ENABLE PATH TRACING", &useRayTracing)) accumulationFrame = 1.0f;
+            ImGui::Separator();
+            ImGui::Checkbox("Show Light Gizmos", &showLights);
+            ImGui::Separator();
+            ImGui::Checkbox("Enable Simple Denoise", &useDenoise);
             ImGui::Separator();
 
             ImGui::Text("Global Presets");
@@ -533,15 +582,30 @@ int main() {
 
                 ImGui::End();
             }
-        } 
-        else if (currentState == STATE_RENDER) {
-            ImGui::Begin("RENDER");
-            ImGui::Text("E");
-            if (ImGui::Button("Back to Launcher")) {
-                currentState = STATE_LAUNCHER;
-                glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_NORMAL);
+        if (currentState == STATE_RENDER) {
+            bool mouseIsDown = (glfwGetMouseButton(window, GLFW_MOUSE_BUTTON_LEFT) == GLFW_PRESS);
+
+            ImGui::Begin("Tools");
+
+            float side = 40.0f;
+            if (ImGui::Button("Position", ImVec2(0, side))) {
+                
             }
+
             ImGui::End();
+
+            if (mouseIsDown && !mouseWasPressed && currentState == STATE_RENDER) {
+                glBindBuffer(GL_SHADER_STORAGE_BUFFER, selectionSSBO);
+                int* ptr = (int*)glMapBufferRange(GL_SHADER_STORAGE_BUFFER, 0, sizeof(int), GL_MAP_READ_BIT);
+                
+                if (ptr) {
+                    mySelectedId = *ptr;
+                    std::cout << "Selected Object ID: " << mySelectedId << std::endl;
+                    glUnmapBuffer(GL_SHADER_STORAGE_BUFFER);
+                    accumulationFrame = 1.0f;
+                }
+            }
+            mouseWasPressed = mouseIsDown;
         }
 
         ImGui::Render();

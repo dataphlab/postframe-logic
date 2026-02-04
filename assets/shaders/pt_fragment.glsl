@@ -9,6 +9,9 @@ uniform vec2 u_seed1;
 uniform mat4 u_view;
 uniform sampler2D u_sample, u_floorTex;
 uniform int u_useRayTracing;
+uniform float floorSize;
+uniform int u_showLightGizmos;
+uniform int u_selectedId;
 
 // --- СТРУКТУРЫ И БУФЕРЫ ---
 
@@ -45,12 +48,22 @@ struct MeshObject {
 layout(std430, binding = 2) buffer MeshBuffer { Triangle triangles[]; };
 layout(std430, binding = 3) buffer ObjectBuffer { MeshObject objects[]; };
 layout(std430, binding = 4) buffer BVHBuffer { BVHNode bvhNodes[]; };
+layout(std430, binding = 6) buffer SelectionBuffer {
+    int hoverId;
+};
+
+uniform vec2 u_mousePos;
 
 struct Hit { 
     float t; 
     vec3 p, n, albedo, emi; 
     float rough;
     int objId; 
+};
+
+struct OverlayHit {
+    float t;
+    vec3 color;
 };
 
 // --- ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ ---
@@ -90,46 +103,85 @@ float intersectTriangle(vec3 ro, vec3 rd, vec3 v0, vec3 v1, vec3 v2) {
     return (t > 0.001) ? t : 1e10;
 }
 
-void checkMeshBVH(vec3 ro, vec3 rd, int rootNodeIdx, inout Hit hit) {
+void checkMeshBVH(vec3 ro, vec3 rd, int rootNodeIdx, int globalObjId, inout Hit hit) {
     vec3 invRd = 1.0 / rd;
     int stack[32]; int stackPtr = 0;
     stack[stackPtr++] = rootNodeIdx;
+    
     while (stackPtr > 0) {
         int nodeIdx = stack[--stackPtr];
         BVHNode node = bvhNodes[nodeIdx];
+        
         if (intersectAABB_dist(ro, invRd, node.minBounds, node.maxBounds) >= hit.t) continue;
+        
         if (node.triCount > 0) { 
             for (int i = 0; i < node.triCount; i++) {
                 int triIdx = node.leftFirst + i;
                 Triangle tri = triangles[triIdx];
                 float t = intersectTriangle(ro, rd, tri.v0, tri.v1, tri.v2);
                 if (t < hit.t) {
-                    hit.t = t; hit.p = ro + rd * t;
+                    hit.t = t; 
+                    hit.p = ro + rd * t;
                     hit.n = normalize(cross(tri.v1 - tri.v0, tri.v2 - tri.v0));
                     if(dot(rd, hit.n) > 0.0) hit.n = -hit.n;
-                    hit.albedo = tri.color; hit.emi = vec3(0); hit.objId = 100 + triIdx;
+                    hit.albedo = tri.color; 
+                    hit.emi = vec3(0);
+                    // ТЕПЕРЬ ПРИСВАИВАЕМ ID ОБЪЕКТА, А НЕ ТРЕУГОЛЬНИКА
+                    hit.objId = globalObjId; 
                 }
             }
         } else {
-            stack[stackPtr++] = node.leftFirst; stack[stackPtr++] = node.leftFirst + 1;
+            stack[stackPtr++] = node.leftFirst; 
+            stack[stackPtr++] = node.leftFirst + 1;
+        }
+    }
+}
+
+// Функция для отрисовки чисто визуальных штук
+void checkOverlays(vec3 ro, vec3 rd, inout OverlayHit ohit) {
+    if (u_showLightGizmos == 0) return;
+
+    for(int i = 0; i < lights.length(); i++) {
+        vec3 lp = lights[i].position;
+        
+        // Рисуем сферу
+        vec3 oc = ro - lp;
+        float b = dot(oc, rd);
+        float c = dot(oc, oc) - 0.05;
+        float h = b*b - c;
+        if (h > 0.0) {
+            float t = -b - sqrt(h);
+            if (t > 0.0 && t < ohit.t) {
+                ohit.t = t;
+                ohit.color = vec3(1.0, 1.0, 1.0); // Желтый
+            }
         }
     }
 }
 
 void checkScene(vec3 ro, vec3 rd, inout Hit hit) {
-    // Пол
+    // Пол (ID = 10)
     float tp = -(ro.y + 1.0) / rd.y;
     if(tp > 0.001 && tp < hit.t) {
-        hit.t = tp; hit.p = ro + rd*tp; hit.n = vec3(0,1,0);
-        hit.albedo = texture(u_floorTex, hit.p.xz * 0.1).rgb;
-        hit.emi = vec3(0); hit.objId = 10;
+        vec3 intersectPoint = ro + rd * tp;
+        if(abs(intersectPoint.x) < floorSize && abs(intersectPoint.z) < floorSize) {
+            hit.t = tp; 
+            hit.p = intersectPoint; 
+            hit.n = vec3(0, 1, 0);
+            hit.albedo = texture(u_floorTex, hit.p.xz * 0.1).rgb;
+            hit.emi = vec3(0); 
+            hit.objId = 10;
+        }
     }
-    
-    // Меши
+
+    // Меши (ID = индекс в массиве objects)
     vec3 invRd = 1.0 / rd;
     for(int i = 0; i < objects.length(); i++) {
-        if (intersectAABB_dist(ro, invRd, objects[i].minAABB, objects[i].maxAABB) < hit.t)
-            checkMeshBVH(ro, rd, objects[i].bvhRootIndex, hit);
+        // Сначала быстрая проверка по общему AABB объекта
+        if (intersectAABB_dist(ro, invRd, objects[i].minAABB, objects[i].maxAABB) < hit.t) {
+            // Передаем индекс 'i' как ID объекта
+            checkMeshBVH(ro, rd, objects[i].bvhRootIndex, i, hit);
+        }
     }
 }
 
@@ -146,7 +198,7 @@ bool isVisible(vec3 from, vec3 to) {
     return hit.t > maxT;
 }
 
-// НОВЫЙ СЭМПЛИНГ ВСЕХ ИСТОЧНИКОВ ИЗ SSBO
+// СЭМПЛИНГ ВСЕХ ИСТОЧНИКОВ ИЗ SSBO
 vec3 sampleAllLights(vec3 p, vec3 n, vec3 albedo) {
     vec3 total = vec3(0);
     for(int i = 0; i < lights.length(); i++) {
@@ -182,7 +234,7 @@ vec3 trace(vec3 ro, vec3 rd) {
     }
 
     vec3 col = vec3(0), mask = vec3(1);
-    for(int i = 0; i < 4; i++) {
+    for(int i = 0; i < 2; i++) {
         Hit hit; hit.t = 1e10; hit.objId = -1;
         checkScene(ro, rd, hit);
         
@@ -211,7 +263,35 @@ void main() {
     vec2 jitter = (u_useRayTracing == 1) ? (vec2(rand(), rand()) - 0.5) : vec2(0.0);
     vec2 uv = ((TexCoords + jitter / u_resolution) * 2.0 - 1.0) * vec2(u_resolution.x / u_resolution.y, 1.0);
     vec3 rd = normalize(mat3(inverse(u_view)) * vec3(uv, -1.5));
-    vec3 color = trace(u_pos, rd);
+
+    Hit sceneHit; 
+    sceneHit.t = 1e10; 
+    sceneHit.objId = -1;
+    checkScene(u_pos, rd, sceneHit);
+
+    if (int(gl_FragCoord.x) == int(u_mousePos.x) && int(gl_FragCoord.y) == int(u_mousePos.y)) {
+        hoverId = sceneHit.objId; 
+    }
+
+    vec3 physicalColor = trace(u_pos, rd); 
+
+    OverlayHit ohit;
+    ohit.t = 1e10;
+    ohit.color = vec3(0);
+    checkOverlays(u_pos, rd, ohit);
+
+    vec3 finalColor;
+    if (ohit.t < sceneHit.t) {
+        finalColor = ohit.color;
+    } else {
+        finalColor = physicalColor;
+    }
+
+    if (u_selectedId != -1 && sceneHit.objId == u_selectedId) {
+        finalColor = mix(finalColor, vec3(1.0, 0.6, 0.0), 0.3); 
+        finalColor += vec3(0.1);
+    }
+
     vec3 last = texture(u_sample, TexCoords).rgb;
-    FragColor = vec4(mix(last, color, u_sample_part), 1.0);
+    FragColor = vec4(mix(last, finalColor, u_sample_part), 1.0);
 }
